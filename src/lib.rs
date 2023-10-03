@@ -18,14 +18,14 @@ pub fn create(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         };
     });
 
-    let field_convert_set_expressions_quote: std::vec::Vec<TokenStream> = vec![("set", "Equal")].iter().map(|(fn_name, operator_name)| {
+    let field_convert_set_expressions_quote: std::vec::Vec<TokenStream> = vec![("create", "Equal"), ("update", "Equal")].iter().map(|(fn_name, operator_name)| {
         let fn_ident = syn::Ident::new(&format!("into_{}_expressions", fn_name), proc_macro2::Span::call_site());
         let operator_ident = syn::Ident::new(operator_name, proc_macro2::Span::call_site());
 
         let field_quotes = ast.fields.iter().map(|field| {
             let field_name = &field.ident.as_ref().unwrap();
             return quote::quote! {
-                vec.push((surrealdb::sql::Idiom::from("#field_name".to_owned()), surrealdb::sql::Operator::#operator_ident, surrealdb::sql::Value::from(self.#field_name)));
+                vec.push((surrealdb::sql::Idiom::from(stringify!(#field_name).to_owned()), surrealdb::sql::Operator::#operator_ident, surrealdb::sql::Value::from(self.#field_name)));
             }
         });
 
