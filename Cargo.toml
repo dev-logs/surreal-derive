@@ -1,5 +1,5 @@
 [package]
-name = "devl-macro"
+name = "surreal_derive"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,3 +14,4 @@ serde_json = "1.0.107"
 surrealdb = "1.0.0"
 proc-macro2 = "1.0.67"
 darling = "0.20.3"
+surreal_devl = { path= "../surreal-devl" }
