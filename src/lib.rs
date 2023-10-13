@@ -1,69 +1,94 @@
 extern crate proc_macro;
 
-use std::ops::Range;
+use std::num::FpCategory::Normal;
+use std::ops::{Index, Range};
 use quote::ToTokens;
 use surreal_devl::macro_state::*;
+use surreal_devl::macro_state::Trace::NAKED;
 
 #[proc_macro]
 pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as syn::LitStr).value();
 
-    let mut current_state = State::NORMAL;
+    let mut current_state = State::normal();
     let mut out_states: Vec<Content> = vec![];
 
     for (i, c) in input.char_indices().into_iter() {
-        current_state = match &mut current_state {
-            State::NORMAL => match c {
-                '#' => State::MATCHING {
-                    current: Content::new(String::from(""), i as u32),
-                    traces: vec![Trace::NAKED],
-                },
-                _ => State::NORMAL,
-            },
-            State::MATCHING { ref mut current, ref mut traces } => match &(traces.last().expect("The traces must not be empty")).consume(&c) {
-                true => {
-                    traces.pop();
-                    match traces.is_empty() {
-                        true => {
-                            let mut matched_thing = current.clone();
-                            matched_thing.end = Some(i as u32);
-                            State::MATCHED(matched_thing)
+        if let State::NORMAL { block_traces } = &mut current_state {
+            match c {
+                '#' => { current_state = State::NORMAL { block_traces: vec![Trace::NAKED(i as u32)] } },
+                _ => {
+                    if !block_traces.is_empty() {
+                        match c {
+                            '(' => {
+                                block_traces.push(Trace::BRACKET(i as u32));
+                            },
+                            _ => {}
                         }
-                        false => current_state
+
+                        if let Trace::NAKED(first_index) = block_traces.first().unwrap() {
+                            current_state = State::matching(first_index.to_owned());
+                        }
+                    }
+                },
+            };
+        }
+
+        if let State::MATCHING { ref mut current, ref mut content_traces, ref mut block_traces } = &mut current_state {
+            macro_rules! found_new_content {
+                    () => {
+                        current.merge_content(c.to_string());
+                        match c {
+                            '(' => content_traces.push(Trace::BRACKET(i as u32)),
+                            _ => {}
+                        };
+                    };
+                }
+
+            if !content_traces.is_empty() {
+                if content_traces.last().expect("The last item in content trace should be empty").consume(&c) {
+                    content_traces.pop();
+                }
+
+                found_new_content!();
+            } else {
+                if !block_traces.is_empty() {
+                    if block_traces.last().expect("The last item in block traces should be empty").consume(&c) {
+                        block_traces.pop();
+                        if let Some(NAKED(i)) = block_traces.last() {
+                            block_traces.pop();
+                        }
+
+                    } else {
+                        found_new_content!();
                     }
                 }
-                false => {
-                    current.merge_content(c.to_string());
-                    match c {
-                        '(' => traces.push(Trace::BRACKET),
-                        _ => {}
-                    }
 
-                    State::MATCHING {
-                        current: current.to_owned(),
-                        traces: traces.to_owned(),
-                    }
+                if block_traces.is_empty() {
+                    let mut matched_thing = current.clone();
+                    matched_thing.end = Some((i + 1) as u32);
+                    current_state = State::MATCHED(matched_thing);
                 }
-            },
-            _ => current_state
-        };
-
-        current_state = match current_state {
-            State::MATCHED(c) => {
-                out_states.push(c.clone());
-                State::NORMAL
             }
-            _ => current_state
         };
-    };
+
+        if let State::MATCHED(c) = &mut current_state {
+            out_states.push(c.clone());
+            current_state = State::normal();
+        }
+    }
 
     let mut out_str = input.clone();
+    let values: Vec<String> = out_states.clone().into_iter().map(|it| {
+        it.value
+    }).collect();
+
     for out_state in out_states {
-        out_str.replace_range(Range { start: out_state.start as usize, end: out_state.end.unwrap() as usize }, "{}");
+        out_str.replace_range(Range { start: out_state.start as usize, end: out_state.end.unwrap() as usize }, "{}" );
     }
 
     (quote::quote! {
-        format!(#out_str)
+        format!(#out_str, #(#values)*)
     }).into()
 }
 
@@ -78,7 +103,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
         // Check if the field's type is Vec.
         if let syn::Type::Path(type_path) = &field.ty {
             if type_path.path.segments.first().unwrap().ident.to_string() == "Vec" {
-                    return quote::quote! {
+                return quote::quote! {
                         let mut array_value: std::vec::Vec<surrealdb::sql::Value> = self.#field_name.iter().map(|v| {
                             surrealdb::sql::Value::from(v)
                         })
@@ -89,7 +114,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
                             surrealdb::sql::Value::from(array_value)) // value
                         );
                     };
-                }
+            }
         }
 
         quote::quote! {
