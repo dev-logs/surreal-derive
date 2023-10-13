@@ -4,7 +4,8 @@ use proc_macro::Ident;
 use std::num::FpCategory::Normal;
 use std::ops::{Index, Range};
 use std::thread::current;
-use quote::ToTokens;
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, ToTokens};
 use surreal_devl::macro_state::*;
 use surreal_devl::macro_state::Trace::NAKED;
 
@@ -106,13 +107,14 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         }
     }
 
-    let values: Vec<String> = out_states.clone().into_iter().map(|it| {
-        return it.value;
-    }).collect();
+    let values = out_states.clone().into_iter().map(|it| {
+        return syn::parse_str::<TokenStream>(&it.value).unwrap();
+    });
 
-    return (quote::quote! {
+    return (quote::quote! {{
+        use surreal_devl::*;
         format!(#out_str, #(#values),*)
-    }).into();
+    }}).into();
 }
 
 #[proc_macro_derive(surreal_derive)]
