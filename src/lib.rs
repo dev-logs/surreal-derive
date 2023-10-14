@@ -1,112 +1,86 @@
 extern crate proc_macro;
 
-use std::ops::{Range};
-use std::thread::current;
+use std::fmt::Display;
 use proc_macro2::TokenStream;
 use quote::{ToTokens};
-use surreal_devl::macro_state::*;
-use surreal_devl::macro_state::Trace::NAKED;
 use syn::{LitStr, parse_macro_input};
 
 #[proc_macro]
 pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let mut input = parse_macro_input!(input as LitStr).value();
+    let input = parse_macro_input!(input as LitStr).value();
 
-    let mut current_state = State::normal();
-    let mut out_states: Vec<Content> = vec![];
-    let mut out_str = input.clone();
+    let mut chars = input.chars();
+    let mut output = String::new();
+    let mut values = Vec::new();
 
-    let mut index: usize = 0;
-    while index < out_str.len() {
-        let c = out_str.chars().nth(index).unwrap();
-        if let State::NORMAL { block_traces } = &mut current_state {
-            match c {
-                '#' => { current_state = State::NORMAL { block_traces: vec![NAKED(index)] } },
-                _ => {
-                    if !block_traces.is_empty() {
-                        let mut content: Option<Content> = None;
-                        match c {
-                            '(' => {
-                                block_traces.push(Trace::BRACKET(index));
-                            },
-                            _ => {
-                                content = Some(Content::new(c.to_string(), index - 1));
+    while let Some(c) = chars.next() {
+        match c {
+            '#' => {
+                // Handle '#': This is a special case in the input string.
+                output.push_str("{}");
+                let mut content = String::new();
+                'outer: while let Some(c) = chars.next() {
+                    match c {
+                        '(' => {
+                            // Handle the start of a block.
+                            content.push('(');
+                            let mut depth = 1;
+                            while let Some(c) = chars.next() {
+                                content.push(c);
+                                match c {
+                                    '(' => depth += 1,
+                                    ')' => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            // End of the block.
+                                            break 'outer;
+                                        }
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
-
-                        if let NAKED(first_index) = block_traces.first().unwrap() {
-                            current_state = State::matching(first_index.to_owned(), block_traces.to_owned(), content);
-                            index += 1;
-                            continue;
+                        '\'' | '"' => {
+                            output.push(c);
+                            break;
+                        }
+                        ';' | ',' => {
+                            output.push(c);
+                            output = output.trim().to_string();
+                            break;
+                        }
+                        ' ' | '\n' | '\r' | '\t' => {
+                            output = output.trim().to_string();
+                            output.push(' ');
+                            break;
+                        },
+                        _ => {
+                            content.push(c);
                         }
                     }
-                },
-            };
-        }
-
-        if let State::MATCHING { ref mut current, ref mut content_traces, ref mut block_traces } = &mut current_state {
-            macro_rules! found_new_content {
-                () => {
-                    current.merge_content(c.to_string());
-                    match c {
-                        '(' => content_traces.push(Trace::BRACKET(index)),
-                        _ => {}
-                    };
-                };
-            }
-
-            if !content_traces.is_empty() {
-                if content_traces.last().expect("The last item in content trace should be empty").consume(&c) {
-                    content_traces.pop();
                 }
 
-                found_new_content!();
-            } else if !block_traces.is_empty() {
-                if block_traces.last().expect("The last item in block traces should be empty").consume(&c) {
-                    block_traces.pop();
-                    if let Some(NAKED(_)) = block_traces.last() {
-                        block_traces.pop();
-                    }
-                } else {
-                   found_new_content!();
-                }
+                values.push(content);
             }
-
-            if let Some(NAKED(_)) = block_traces.last() {
-                if index == out_str.len() - 1 {
-                    block_traces.pop();
-                }
+            ' ' | '\n' | '\r' | '\t' => {
+                output = output.trim().to_string();
+                output.push(' '); // more optimize
             }
-
-            if block_traces.is_empty() {
-                let mut matched_thing = current.clone();
-                matched_thing.end = match c {
-                    ' ' => Some(index), // Keep the trailing space character since it is not part of the content
-                    _ => Some(index + 1)
-                };
-
-                current_state = State::MATCHED(matched_thing);
+            _ => {
+                output.push(c);
             }
-        };
-
-        if let State::MATCHED(c) = &mut current_state {
-            out_states.push(c.clone());
-            out_str.replace_range(Range { start: c.start, end: (c.end.unwrap() as usize) }, "{}" );
-            index = c.start + 3; // 3 = next-char + { + }
-            current_state = State::normal();
-        }
-        else {
-            index += 1;
         }
     }
 
-    let values = out_states.clone().into_iter().map(|it| {
-        return syn::parse_str::<TokenStream>(&it.value).unwrap();
+    output = output.trim().to_owned();
+
+    let values = values.clone().into_iter().map(|it| {
+        return syn::parse_str::<TokenStream>(&it).unwrap();
     });
 
     return (quote::quote! {{
         use surreal_devl::surreal_statement::*;
-        format!(#out_str, #(#values),*)
+        format!(#output, #(#values),*)
     }}).into();
 }
 
