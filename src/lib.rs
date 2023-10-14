@@ -1,17 +1,16 @@
 extern crate proc_macro;
 
-use proc_macro::Ident;
-use std::num::FpCategory::Normal;
-use std::ops::{Index, Range};
+use std::ops::{Range};
 use std::thread::current;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens};
 use surreal_devl::macro_state::*;
 use surreal_devl::macro_state::Trace::NAKED;
+use syn::{LitStr, parse_macro_input};
 
 #[proc_macro]
 pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = syn::parse_macro_input!(input as syn::LitStr).value();
+    let mut input = parse_macro_input!(input as LitStr).value();
 
     let mut current_state = State::normal();
     let mut out_states: Vec<Content> = vec![];
@@ -19,7 +18,7 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 
     let mut index: usize = 0;
     while index < out_str.len() {
-        let c = out_str.chars().nth(index as usize).unwrap();
+        let c = out_str.chars().nth(index).unwrap();
         if let State::NORMAL { block_traces } = &mut current_state {
             match c {
                 '#' => { current_state = State::NORMAL { block_traces: vec![NAKED(index)] } },
@@ -45,12 +44,6 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
             };
         }
 
-        // Detect content
-        // - push into content
-        // - if is a bracket, trace the bracket and push into content
-        // Detect end tag
-        // -
-        // - switch to matched with end index is current index
         if let State::MATCHING { ref mut current, ref mut content_traces, ref mut block_traces } = &mut current_state {
             macro_rules! found_new_content {
                 () => {
@@ -99,7 +92,7 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         if let State::MATCHED(c) = &mut current_state {
             out_states.push(c.clone());
             out_str.replace_range(Range { start: c.start, end: (c.end.unwrap() as usize) }, "{}" );
-            index = c.start + 3; // 3 = {} + next char
+            index = c.start + 3; // 3 = next-char + { + }
             current_state = State::normal();
         }
         else {
@@ -112,14 +105,13 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     });
 
     return (quote::quote! {{
-        use surreal_devl::*;
+        use surreal_devl::surreal_statement::*;
         format!(#out_str, #(#values),*)
     }}).into();
 }
 
 #[proc_macro_derive(surreal_derive)]
 pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-
     let ast: syn::ItemStruct = syn::parse_macro_input!(input as syn::ItemStruct);
     let struct_name = &ast.ident;
 
@@ -151,7 +143,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     });
 
     let into_idiom_value_fn = quote::quote! {
-        fn into_idiom_value(self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
+        fn into_idiom_value(&self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
            let mut vec: std::vec::Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> = std::vec::Vec::new();
            #(#field_converters)*
 
