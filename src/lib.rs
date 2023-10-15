@@ -1,10 +1,13 @@
 extern crate proc_macro;
 
+use proc_macro::Ident;
+use std::any::{Any, TypeId};
 use std::fmt::Display;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{LitStr, parse_macro_input};
 use surreal_devl::config::SurrealDeriveConfig;
+use surreal_devl::naming_convention::snake_case_to_camel;
 
 #[proc_macro]
 pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -91,21 +94,33 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         false => {quote! {}}
     };
 
-    return (quote::quote! {{
+    let output: proc_macro::TokenStream = (quote::quote! {{
         use surreal_devl::surreal_statement::*;
         let statement = format!(#output, #(#values),*);
         #debug_log
         statement
     }}).into();
+
+    if config.enable_compile_log {
+        println!("DEBUG: {}  {}", log_namespace, output);
+    }
+
+    output
 }
 
 #[proc_macro_derive(SurrealDerive)]
 pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let config = SurrealDeriveConfig::get();
     let ast: syn::ItemStruct = syn::parse_macro_input!(input as syn::ItemStruct);
     let struct_name = &ast.ident;
 
     let field_converters = ast.fields.iter().map(|field| {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
+        let db_name: String = match config.enable_snake_case {
+            false => snake_case_to_camel(field_name.to_string().as_str()),
+            true => field_name.to_string()
+        };
+
         // Check if the field's type is Vec.
         if let syn::Type::Path(type_path) = &field.ty {
             if type_path.path.segments.first().unwrap().ident.to_string() == "Vec" {
@@ -116,7 +131,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
                    .collect();
 
                    vec.push((
-                       surrealdb::sql::Idiom::from(stringify!(#field_name).to_owned()), // field name
+                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
                        surrealdb::sql::Value::from(array_value)) // value
                    );
                };
@@ -125,7 +140,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 
         quote::quote! {
             vec.push((
-                surrealdb::sql::Idiom::from(stringify!(#field_name).to_owned()), // field name
+                surrealdb::sql::Idiom::from(stringify!(#db_name).to_owned()), // field name
                 surrealdb::sql::Value::from(self.#field_name.clone())) // value
             );
         }
