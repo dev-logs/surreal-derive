@@ -2,12 +2,14 @@ extern crate proc_macro;
 
 use std::fmt::Display;
 use proc_macro2::TokenStream;
-use quote::{ToTokens};
+use quote::{quote, ToTokens};
 use syn::{LitStr, parse_macro_input};
+use surreal_devl::config::SurrealDeriveConfig;
 
 #[proc_macro]
 pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as LitStr).value();
+    let config = SurrealDeriveConfig::get();
 
     let mut chars = input.chars();
     let mut output = String::new();
@@ -78,13 +80,26 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         return syn::parse_str::<TokenStream>(&it).unwrap();
     });
 
+    let log_namespace = config.namespace;
+    let log_fn = syn::parse_str::<TokenStream>(config.info_log_macro.as_str()).unwrap();
+    let debug_log = match config.enable_log {
+        true => {
+            quote! {
+                #log_fn!("{}: {}", #log_namespace, statement);
+            }
+        }
+        false => {quote! {}}
+    };
+
     return (quote::quote! {{
         use surreal_devl::surreal_statement::*;
-        format!(#output, #(#values),*)
+        let statement = format!(#output, #(#values),*);
+        #debug_log
+        statement
     }}).into();
 }
 
-#[proc_macro_derive(surreal_derive)]
+#[proc_macro_derive(SurrealDerive)]
 pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast: syn::ItemStruct = syn::parse_macro_input!(input as syn::ItemStruct);
     let struct_name = &ast.ident;
