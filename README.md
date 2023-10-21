@@ -24,7 +24,7 @@ pub struct User {
 }
 ```
 
-### Implement the Into<surrealdb::value::RecordId> trait
+### Implement the Into/<surrealdb::value::RecordId> trait
 ```rust
 use surrealdb::opt::RecordId;
 use crate::entities::user::User;
