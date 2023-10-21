@@ -2,6 +2,11 @@
 name = "surreal_derive"
 version = "0.1.0"
 edition = "2021"
+description = "Query builder for surrealdb"
+readme = "README.md"
+repository = "https://github.com/dev-logs/surreal-derive"
+license = "MIT OR Apache-2.0"
+keywords = ["surreal", "surrealdb", "db", "query-builder"]
 
 [lib]
 proc-macro = true
