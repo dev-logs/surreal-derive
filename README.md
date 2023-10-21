@@ -4,11 +4,11 @@ Simple library for writing [**SurrealQL** ](https://surrealdb.com/docs/surrealql
 ### 1. Install surreal-devl: https://github.com/dev-logs/surreal-devl
 Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and the your defined Struct, also support working with **Array**, **ID** or **DateTime**
 ```console
-cargo add sureal-devl
+cargo add sureal_devl
 ```
 ### 2. Install surreal-derive:
 ```console
-cargo add surreal-derive
+cargo add surreal_derive_plus
 ```
 # Usage
 ### Mark your struct as surreal_derive
