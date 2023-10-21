@@ -64,7 +64,7 @@ impl Into<RecordId> for User {
 
         assert_eq!(query_statement, "CREATE user SET arr = [1, 2, 3, 1]")
 ```
-#### Struct Arra
+#### Struct Array
 ```rust
         let friends = vec![
             User {
