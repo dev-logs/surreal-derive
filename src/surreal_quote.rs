@@ -1,3 +1,4 @@
+use std::any::{Any, TypeId};
 use surreal_devl::config::SurrealDeriveConfig;
 use proc_macro2::{TokenStream};
 use quote::quote;
@@ -69,9 +70,14 @@ pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
     }
 
     output = output.trim().to_owned();
-
     let values = values.clone().into_iter().map(|it| {
-        return syn::parse_str::<TokenStream>(&it).unwrap();
+        let result = syn::parse_str::<TokenStream> (&it);
+        match result.unwrap().type_id() {
+            TypeId::of::<surreal_devl::surreal_statement::content<i32>>() => {}
+            TypeId { t } => {}
+        };
+
+        return syn::parse_str::<TokenStream>(format!("surrealdb::sql::Value::from({})", &it).as_str()).unwrap();
     });
 
     let log_namespace = config.namespace;
