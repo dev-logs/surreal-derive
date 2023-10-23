@@ -47,7 +47,7 @@ impl Into<RecordId> for User {
         password: "000000".to_string(),
     };
 
-    let created_user: Option<entities::user::User> = DB.query(surreal_quote!("CREATE #record(&user)")).await.unwrap().take(0).unwrap(); => CREATE user:surreal SET name='surreal', password='000000'
+    let created_user: Option<entities::user::User> = DB.query(surreal_quote!("CREATE #record(&new_user)")).await.unwrap().take(0).unwrap(); => CREATE user:surreal SET name='surreal', password='000000'
 ```
 
 #### Variable
@@ -55,49 +55,57 @@ impl Into<RecordId> for User {
         let age = 2;
         let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET age = #age");
 
-        assert_eq!(query_statement, "CREATE user SET age = 2")
+        assert_eq!(query_statement, "CREATE user SET age = 2");
 ```
 #### Array
 ```rust
         let arr = vec![1,2,3,1];
         let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #array(&arr)");
 
-        assert_eq!(query_statement, "CREATE user SET arr = [1, 2, 3, 1]")
+        assert_eq!(query_statement, "CREATE user SET arr = [1, 2, 3, 1]");
 ```
 #### Struct Array
 ```rust
         let friends = vec![
             User {
-                name: "clay".to_string(),
-                full_name: "clay clay".to_string(),
+                name: "Ethan".to_string(),
+                full_name: "Ethan Sullivan".to_string(),
                 password: "123123".to_string(),
             },
             User {
-                name: "joih".to_string(),
-                full_name: "joih joih".to_string(),
+                name: "Olivia".to_string(),
+                full_name: "Olivia Anderson".to_string(),
                 password: "123123".to_string(),
             }
         ];
-        let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends= #array(&friends)");
-        assert_eq!(query_statement, "CREATE user SET friends= [user:clay, user:joih]");
+        let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #array(&friends)");
+        assert_eq!(query_statement, "CREATE user SET friends = [user:Ethan, user:Olivia]");
 ```
 #### DateTime
 ```rust
-        let dateBirth: DateTime<Utc> = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-        let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET brithday = #date(&dateBirth)");
-        assert_eq!(query_statement, "CREATE user SET brithday = '2020-01-01T00:00:00Z");
+        let date: DateTime<Utc> = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birthday = #date(&date)");
+        assert_eq!(query_statement, "CREATE user SET birthday = '2020-01-01T00:00:00Z");
 ```
 
 #### Surreal ID
 ```rust
         let user =  User {
             name: "clay".to_string(),
-            full_name: "clay clay".to_string(),
+            full_name: "clay".to_string(),
             password: "123123".to_string(),
         };
 
         let query_statement = surreal_derive_plus::surreal_quote!("UPDATE #id(&user) SET age = 10");
         assert_eq!(query_statement, "UPDATE user:clay SET age = 10");
+```
+
+#### Surreal Value
+This will wrap the variable inside surrealdb::sql::Value::from()
+```rust
+        let str = String::from("string");
+        let statement = surreal_derive_plus::surreal_quote!("CREATE user SET full_name = #val(&str)");
+        assert_eq!(statement, "CREATE user SET full_name = 'string'");
 ```
 
 # Customize setting
