@@ -1,7 +1,7 @@
 # <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal derive
 Simple library for writing [**SurrealQL** ](https://surrealdb.com/docs/surrealql), this is just a verythin layer on top of [SurrealDb Rust SDK](https://surrealdb.com/docs/integration/sdks/rust). **You will never pay any runtime performance for what you don't do**
 # Installation
-### 1. Install surreal-devl: https://github.com/dev-logs/surreal-devl
+### 1. Install surreal-devl: https://crates.io/crates/surreal_devl
 Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and the your defined Struct, also support working with **Array**, **ID** or **DateTime**
 ```console
 cargo add sureal_devl
