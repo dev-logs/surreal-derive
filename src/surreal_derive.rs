@@ -27,6 +27,14 @@ pub fn surreal_derive_process(ast: syn::ItemStruct) -> proc_macro::TokenStream {
                    );
                };
             }
+            if type_path.path.segments.iter().find(|s| s.ident.to_string() == "Duration").is_some() {
+                return quote::quote! {
+                   vec.push((
+                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                       surrealdb::sql::Value::from(surrealdb::sql::Duration::from(self.#field_name.clone()))) // value
+                   );
+               };
+            }
         }
 
         quote::quote! {
