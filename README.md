@@ -90,6 +90,14 @@ let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birth
 assert_eq!(query_statement, "CREATE user SET birthday = '2020-01-01T00:00:00Z'");
 ```
 
+#### Duration
+```rust
+let party_duration = Duration::from_millis(2 * 60 * 60 * 1000);
+let party_started_at: DateTime<Utc> = Utc.with_ymd_and_hms(2023, 1, 1, 14, 0, 0).unwrap();
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE party SET duration = #duration(&party_duration), #date(&party_started_at)");
+assert_eq!(query_statement, "CREATE party SET duration = 2h, '2023-01-01T14:00:00Z'");
+```
+
 #### Surreal ID
 ```rust
 let user =  User {
