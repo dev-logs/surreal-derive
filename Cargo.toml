@@ -1,6 +1,6 @@
 [package]
 name = "surreal_derive_plus"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 description = "Query builder for surrealdb"
 readme = "README.md"
@@ -14,10 +14,10 @@ proc-macro = true
 [dependencies]
 syn = { version = "2.0.38", features = ["full"] }
 quote = "1.0.33"
-surrealdb = "1.0.0"
+surrealdb = { version = "1.0.0", default-features = false }
 proc-macro2 = "1.0.67"
-surreal_devl = "1.0.2"
+surreal_devl = { path = "../surreal-devl" }
 
 [dev-dependencies]
-serde = { version = "1.0.118", features = ["derive"]}
+serde = { version = "1.0.118", features = ["derive"] }
 serde_json = "1.0.107"
