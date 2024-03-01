@@ -59,6 +59,10 @@ pub fn surreal_derive_process(ast: syn::ItemStruct) -> proc_macro::TokenStream {
             #into_idiom_value_fn
         }
 
+        impl surreal_devl::serialize::SurrealSerialize for &#struct_name {
+            #into_idiom_value_fn
+        }
+
         impl From<#struct_name> for surrealdb::sql::Value {
             fn from(value: #struct_name) -> Self {
                 surrealdb::sql::Value::Thing(value.into())
@@ -67,7 +71,13 @@ pub fn surreal_derive_process(ast: syn::ItemStruct) -> proc_macro::TokenStream {
 
         impl From<&#struct_name> for surrealdb::sql::Value {
             fn from(value: &#struct_name) -> Self {
-               surrealdb::sql::Value::Thing(<#struct_name as Into<surrealdb::sql::Thing>>::into((value.clone())))
+               surrealdb::sql::Value::Thing(value.clone().into())
+            }
+        }
+
+        impl Into<surrealdb::opt::RecordId> for &#struct_name {
+            fn into(self) -> surrealdb::opt::RecordId {
+                self.clone().into()
             }
         }
     };
