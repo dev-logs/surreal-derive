@@ -10,8 +10,12 @@ cargo add sureal_devl
 ```console
 cargo add surreal_derive_plus
 ```
+### Note:
+
+Current restriction that will be resolved in future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
+
 # Usage
-### Mark your struct as surreal_derive
+### Mark your struct as surreal_derive.
 This will will automatically generate code that could convert your struct into [surrealdb idioms](https://docs.rs/surrealdb/1.0.0/surrealdb/sql/struct.Idiom.html)
 ```rust
 use serde::{Deserialize, Serialize};
