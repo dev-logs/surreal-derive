@@ -3,8 +3,6 @@ extern crate proc_macro;
 mod surreal_quote;
 mod surreal_derive;
 
-use std::fmt::Display;
-use quote::ToTokens;
 use syn::{LitStr, parse_macro_input};
 
 /// Read and generate valid SurrealDb query command at compile time

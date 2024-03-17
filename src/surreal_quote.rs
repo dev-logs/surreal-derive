@@ -1,4 +1,3 @@
-use std::any::{Any, TypeId};
 use surreal_devl::config::SurrealDeriveConfig;
 use proc_macro2::{TokenStream};
 use quote::quote;
