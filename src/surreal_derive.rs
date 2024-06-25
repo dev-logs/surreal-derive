@@ -1,7 +1,96 @@
+use quote::quote;
 use surreal_devl::config::SurrealDeriveConfig;
 use surreal_devl::naming_convention::{camel_to_snake_case, snake_case_to_camel};
+use syn::Fields;
 
-pub fn surreal_derive_process(ast: syn::ItemStruct) -> proc_macro::TokenStream {
+pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStream {
+    let enum_name = &ast.ident;
+
+    let insert_to_every_variant = |token: proc_macro2::TokenStream| {
+        let mut matches = vec![];
+        for variant in &ast.variants {
+            let ident = &variant.ident;
+            let fields = &variant.fields;
+            if let Fields::Unnamed(supported_enum) = fields {
+                if supported_enum.unnamed.iter().count() != 1 as usize {
+                    panic!("Only supported Unnamed enum with single value");
+                }
+            }
+            else {
+                panic!("Only supported Unnamed enum with single value");
+            }
+
+            matches.push(quote::quote! {
+                #enum_name::#ident(param) => #token,
+            });
+        }
+
+        quote! {
+            match value {
+                #(#matches)*
+            }
+        }
+    };
+
+    let quote1 = insert_to_every_variant(quote::quote! {
+      param.into_idiom_value()
+    });
+
+    let quote2 = insert_to_every_variant(quote::quote! {
+      param.into_idiom_value()
+    });
+
+    let quote3 = insert_to_every_variant(quote! {
+      surrealdb::sql::Value::Thing(param.into())
+    });
+
+    let quote4 = insert_to_every_variant(quote! {
+        surrealdb::sql::Value::Thing(param.clone().into())
+    });
+
+    let quote5 = insert_to_every_variant(quote! {
+        param.clone().into()
+    });
+
+    let gen = quote::quote! {
+        impl surreal_devl::serialize::SurrealSerialize for #enum_name {
+            fn into_idiom_value(&self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
+                let value = self;
+                #quote1
+            }
+        }
+
+        impl surreal_devl::serialize::SurrealSerialize for &#enum_name {
+            fn into_idiom_value(&self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
+                let value = self;
+                #quote2
+            }
+        }
+
+        impl From<#enum_name> for surrealdb::sql::Value {
+            fn from(value: #enum_name) -> Self {
+              #quote3
+            }
+        }
+
+        impl From<&#enum_name> for surrealdb::sql::Value {
+            fn from(value: &#enum_name) -> Self {
+                #quote4
+            }
+        }
+
+        impl Into<surrealdb::opt::RecordId> for &#enum_name {
+            fn into(self) -> surrealdb::opt::RecordId {
+                let value = self;
+                #quote5
+            }
+        }
+    };
+
+    gen.into()
+}
+
+pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
 
