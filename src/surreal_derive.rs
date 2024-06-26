@@ -3,7 +3,9 @@ use surreal_devl::config::SurrealDeriveConfig;
 use surreal_devl::naming_convention::{camel_to_snake_case, snake_case_to_camel};
 use syn::Fields;
 
-pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStream {
+use crate::derive_attribute::SurrealDeriveAttribute;
+
+pub fn surreal_derive_process_enum(ast: syn::ItemEnum, attributes: SurrealDeriveAttribute) -> proc_macro::TokenStream {
     let enum_name = &ast.ident;
 
     let insert_to_every_variant = |token: proc_macro2::TokenStream| {
@@ -45,11 +47,15 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
     });
 
     let quote4 = insert_to_every_variant(quote! {
-        surrealdb::sql::Value::Thing(param.clone().into())
+        surrealdb::sql::Value::Thing(param.into())
     });
 
     let quote5 = insert_to_every_variant(quote! {
-        param.clone().into()
+        param.into()
+    });
+
+    let quote6 = insert_to_every_variant(quote! {
+        surrealdb::sql::Thing::from(Into::<surrealdb::opt::RecordId>::into(param))
     });
 
     let gen = quote::quote! {
@@ -75,6 +81,7 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
 
         impl From<&#enum_name> for surrealdb::sql::Value {
             fn from(value: &#enum_name) -> Self {
+                let value = value;
                 #quote4
             }
         }
@@ -85,12 +92,18 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
                 #quote5
             }
         }
+
+        impl From<#enum_name> for surrealdb::sql::Thing {
+           fn from(value: #enum_name) -> Self {
+               #quote6
+           }
+        }
     };
 
     gen.into()
 }
 
-pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
+pub fn surreal_derive_process_struct(ast: syn::ItemStruct, attributes: SurrealDeriveAttribute) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
 
@@ -124,6 +137,14 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
                    );
                };
             }
+            if type_path.path.segments.iter().find(|s| s.ident.to_string() == "Option").is_some() {
+                return quote::quote! {
+                   vec.push((
+                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                       self.#field_name.clone().map(|it| surrealdb::sql::Value::from(it)).unwrap_or(surrealdb::sql::Value::None))
+                   );
+               };
+            }
         }
 
         quote::quote! {
@@ -143,7 +164,7 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
         }
     };
 
-    let gen = quote::quote! {
+      let gen = quote::quote! {
         impl surreal_devl::serialize::SurrealSerialize for #struct_name {
             #into_idiom_value_fn
         }

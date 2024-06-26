@@ -1,7 +1,10 @@
 extern crate proc_macro;
 mod surreal_derive;
 mod surreal_quote;
+mod derive_attribute;
 
+use darling::FromDeriveInput;
+use derive_attribute::SurrealDeriveAttribute;
 use syn::{parse_macro_input, Data, LitStr};
 
 /// Read and generate valid SurrealDb query command at compile time
@@ -75,11 +78,14 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let usage_input = input.clone();
     let derive_input = syn::parse_macro_input!(input as syn::DeriveInput);
+    let attributes = SurrealDeriveAttribute::from_derive_input(&derive_input).unwrap_or_default();
+
     if let Data::Enum(_) = derive_input.data {
         let ast: syn::ItemEnum = syn::parse_macro_input!(usage_input as syn::ItemEnum);
-        return surreal_derive::surreal_derive_process_enum(ast);
-    } else {
+        return surreal_derive::surreal_derive_process_enum(ast, attributes);
+    }
+    else {
         let ast: syn::ItemStruct = syn::parse_macro_input!(usage_input as syn::ItemStruct);
-        surreal_derive::surreal_derive_process_struct(ast)
+        return surreal_derive::surreal_derive_process_struct(ast, attributes);
     }
 }
