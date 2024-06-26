@@ -3,9 +3,7 @@ use surreal_devl::config::SurrealDeriveConfig;
 use surreal_devl::naming_convention::{camel_to_snake_case, snake_case_to_camel};
 use syn::Fields;
 
-use crate::derive_attribute::SurrealDeriveAttribute;
-
-pub fn surreal_derive_process_enum(ast: syn::ItemEnum, attributes: SurrealDeriveAttribute) -> proc_macro::TokenStream {
+pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStream {
     let enum_name = &ast.ident;
 
     let insert_to_every_variant = |token: proc_macro2::TokenStream| {
@@ -103,7 +101,7 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum, attributes: SurrealDerive
     gen.into()
 }
 
-pub fn surreal_derive_process_struct(ast: syn::ItemStruct, attributes: SurrealDeriveAttribute) -> proc_macro::TokenStream {
+pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
 
