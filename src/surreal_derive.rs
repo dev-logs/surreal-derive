@@ -6,22 +6,34 @@ use syn::Fields;
 pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStream {
     let enum_name = &ast.ident;
 
-    let insert_to_every_variant = |token: proc_macro2::TokenStream| {
+    let insert_to_every_variant = |id_token: proc_macro2::TokenStream, object_token: proc_macro2::TokenStream| {
         let mut matches = vec![];
+        if ast.variants.iter().count() != 2 {
+            panic!("The enum must have exact two state");
+        }
+
         for variant in &ast.variants {
             let ident = &variant.ident;
+            if ident.clone().to_string() != "Object" && ident.clone().to_string() != "Id" {
+                panic!("The enum must have exact two state id and object got {:?}", ident.to_string());
+            }
+
             let fields = &variant.fields;
             if let Fields::Unnamed(supported_enum) = fields {
-                if supported_enum.unnamed.iter().count() != 1 as usize {
+                if supported_enum.unnamed.iter().count() != 1 {
                     panic!("Only supported Unnamed enum with single value");
                 }
-            }
-            else {
+            } else {
                 panic!("Only supported Unnamed enum with single value");
             }
 
             matches.push(quote::quote! {
-                #enum_name::#ident(param) => #token,
+                #enum_name::Id(param) => {
+                    #id_token
+                },
+                #enum_name::Object(param) => {
+                  #object_token
+                }
             });
         }
 
@@ -32,31 +44,59 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
         }
     };
 
-    let quote1 = insert_to_every_variant(quote::quote! {
-      param.into_idiom_value()
-    });
+    let quote1 = insert_to_every_variant(
+        quote::quote! {param.into_idiom_value()},
+        quote::quote! {param.into_idiom_value()}
+    );
 
-    let quote2 = insert_to_every_variant(quote::quote! {
-      param.into_idiom_value()
-    });
+    let quote2 = insert_to_every_variant(
+        quote::quote! {param.into_idiom_value()},
+        quote::quote! {param.into_idiom_value()},
+    );
 
-    let quote3 = insert_to_every_variant(quote! {
-      surrealdb::sql::Value::Thing(param.into())
-    });
+    let quote3 = insert_to_every_variant(
+        quote! {surrealdb::sql::Value::Thing(param.into())},
+        quote! {surrealdb::sql::Value::Thing(param.into())}
+    );
 
-    let quote4 = insert_to_every_variant(quote! {
-        surrealdb::sql::Value::Thing(param.into())
-    });
+    let quote4 = insert_to_every_variant(
+        quote! {surrealdb::sql::Value::Thing(param.into())},
+        quote! {surrealdb::sql::Value::Thing(param.into())}
+    );
 
-    let quote5 = insert_to_every_variant(quote! {
-        param.into()
-    });
+    let quote5 = insert_to_every_variant(
+        quote! {param.into()},
+        quote! {param.into()}
+    );
 
-    let quote6 = insert_to_every_variant(quote! {
-        surrealdb::sql::Thing::from(Into::<surrealdb::opt::RecordId>::into(param))
-    });
+    let quote6 = insert_to_every_variant(
+        quote! {surrealdb::sql::Thing::from(Into::<surrealdb::opt::RecordId>::into(param))},
+        quote! {surrealdb::sql::Thing::from(Into::<surrealdb::opt::RecordId>::into(param))},
+    );
 
     let gen = quote::quote! {
+        impl From<surrealdb::sql::Value> for #enum_name {
+            fn from(value: surrealdb::sql::Value) -> Self {
+                match value {
+                    surrealdb::sql::Value::Thing(_) => {
+                        return Self::Id(value.into());
+                    },
+                    surrealdb::sql::Value::Object(_) => {
+                        return Self::Object(value.into());
+                    },
+                    _ => {
+                        panic!("Unsupported type != Thing and Object");
+                    }
+                }
+            }
+        }
+
+        impl From<Option<surrealdb::sql::Value>> for #enum_name {
+            fn from(value: Option<surrealdb::sql::Value>) -> Self {
+                Self::from(value.unwrap())
+            }
+        }
+
         impl surreal_devl::serialize::SurrealSerialize for #enum_name {
             fn into_idiom_value(&self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
                 let value = self;
@@ -104,6 +144,44 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
 pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
+
+    let from_value_field_converters = ast.fields.iter().map(|field| {
+        let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
+        let db_name: String = match config.use_camel_case {
+            true => snake_case_to_camel(field_name.to_string().as_str()),
+            false => camel_to_snake_case(field_name.to_string().as_str())
+        };
+
+        if let syn::Type::Path(type_path) = &field.ty {
+            let type_name = type_path.path.segments.iter().map(|it| {
+                it.ident.to_string()
+            }).collect::<Vec<_>>().join("::");
+            match type_name.as_str() {
+                "Option" | "core::option::Option" => {
+                    return quote! {
+                        #field_name: value_object.get_mut(#db_name).take().map(|it| it.to_owned().try_into().unwrap()).into(),
+                    }
+                },
+                "Vec" => {
+                    return quote! {
+                        #field_name: match value_object.get_mut(#db_name) {
+                            Some(surrealdb::sql::Value::Array(ref mut array_obj)) => {
+                                array_obj.to_owned().into_iter().map(|item_obj| item_obj.to_owned().into()).collect()
+                            },
+                            _ => {
+                                panic!("Expected an array");
+                            },
+                        }
+                    }
+                },
+                _ => {}
+            };
+        }
+
+        return quote! {
+            #field_name: value_object.get_mut(#db_name).take().map(|it| it.to_owned().try_into().unwrap()).unwrap(),
+        };
+    });
 
     let field_converters = ast.fields.iter().map(|field| {
         let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
@@ -162,7 +240,25 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
         }
     };
 
-      let gen = quote::quote! {
+    let gen = quote::quote! {
+        impl From<surrealdb::sql::Value> for #struct_name {
+            fn from(value: surrealdb::sql::Value) -> Self {
+                if let surrealdb::sql::Value::Object(mut value_object) = value {
+                   return Self {
+                       #(#from_value_field_converters)*
+                   }
+                }
+
+                panic!("Cannot convert non-object value into #struct_name struct");
+            }
+        }
+
+        impl From<Option<surrealdb::sql::Value>> for #struct_name {
+            fn from(value: Option<surrealdb::sql::Value>) -> Self {
+                Self::from(value.unwrap())
+            }
+        }
+
         impl surreal_devl::serialize::SurrealSerialize for #struct_name {
             #into_idiom_value_fn
         }

@@ -2,17 +2,34 @@
 mod test {
     use chrono::{DateTime, Utc};
     use serde_derive::{Deserialize, Serialize};
-    use surreal_devl::surreal_statement::relate;
     use surrealdb::opt::{RecordId};
     use surrealdb::sql::Id;
     use surrealdb_id::link::Link;
     use surrealdb_id::relation::r#trait::IntoRelation;
     use surreal_derive_plus::{surreal_quote, SurrealDerive};
 
+    // Entity 0
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
+    struct User1 {
+        name: String,
+        name_option: Option<String>,
+        age: i32,
+        age_option: Option<i32>,
+        object: User,
+        option_object: Option<User>,
+        vec_object: Vec<User>
+    }
+
+    impl Into<RecordId> for User1 {
+        fn into(self) -> RecordId {
+            RecordId::from(("user1", self.name.as_str()))
+        }
+    }
+
     // Entity 1
     #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
     struct User {
-        name: String
+        name: String,
     }
 
     // Entity 2
@@ -49,8 +66,8 @@ mod test {
     #[tokio::test]
     pub async fn should_convert_to_link() -> surrealdb::Result<()> {
         let user: RecordId = RecordId::from(("user", "Devlog"));
-        let blogPost: RecordId = RecordId::from(("blogPost", "How to use surrealdb"));
-        let relation = Discussion { content: "Hello I really want to know more".to_string(), created_at: Default::default() }.relate(user, blogPost);
+        let blog_post: RecordId = RecordId::from(("blogPost", "How to use surrealdb"));
+        let relation = Discussion { content: "Hello I really want to know more".to_string(), created_at: Default::default() }.relate(user, blog_post);
 
         assert_eq!(
             surreal_quote!("#relate(&relation)"),
