@@ -240,16 +240,40 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
         }
     };
 
+    let from_value_field_converters_i1 = from_value_field_converters.clone();
+    let from_value_field_converters_i2 = from_value_field_converters.clone();
+
     let gen = quote::quote! {
+        impl From<surrealdb::sql::Object> for #struct_name {
+            fn from(mut value_object: surrealdb::sql::Object) -> Self {
+                return Self {
+                    #(#from_value_field_converters_i1)*
+                }
+            }
+        }
+
         impl From<surrealdb::sql::Value> for #struct_name {
             fn from(value: surrealdb::sql::Value) -> Self {
-                if let surrealdb::sql::Value::Object(mut value_object) = value {
-                   return Self {
-                       #(#from_value_field_converters)*
-                   }
-                }
+                let mut value_object = match value {
+                    surrealdb::sql::Value::Object(mut value_object) => {
+                        value_object
+                    }
+                    surrealdb::sql::Value::Array(surrealdb::sql::Array(array)) => {
+                        if let surrealdb::sql::Value::Object(mut value_object) = array.first().take().unwrap().to_owned() {
+                            value_object
+                        }
+                        else {
+                            panic!("Expected an object or array with one item is object");
+                        }
+                    }
+                    _ => {
+                        panic!("Expected an object or array with one item")
+                    }
+                };
 
-                panic!("Cannot convert non-object value into #struct_name struct");
+                return Self {
+                    #(#from_value_field_converters_i2)*
+                }
             }
         }
 
