@@ -1,7 +1,8 @@
 use quote::quote;
+use regex::Regex;
 use surreal_devl::config::SurrealDeriveConfig;
 use surreal_devl::naming_convention::{camel_to_snake_case, snake_case_to_camel};
-use syn::Fields;
+use syn::{Fields, Type};
 
 pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStream {
     let enum_name = &ast.ident;
@@ -144,6 +145,10 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
 pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
+    let vec_regex = Regex::new(r"^(?:std::vec::)?Vec\s*<.*>$").unwrap();
+    let option_vec_regex = Regex::new(r"^(?:std::option::)?Option\s*<(?:std::vec::)?Vec\s*<.*>>$").unwrap();
+    let option_of_any_regex = Regex::new(r"^(?:std::option::)?Option\s*<.*>$").unwrap();
+    let duration_regex = Regex::new(r"^(?:std::time::)?Duration$").unwrap();
 
     let from_value_field_converters = ast.fields.iter().map(|field| {
         let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
@@ -152,29 +157,34 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
             false => camel_to_snake_case(field_name.to_string().as_str())
         };
 
-        if let syn::Type::Path(type_path) = &field.ty {
-            let type_name = type_path.path.segments.iter().map(|it| {
-                it.ident.to_string()
-            }).collect::<Vec<_>>().join("::");
-            match type_name.as_str() {
-                "Option" | "core::option::Option" => {
-                    return quote! {
-                        #field_name: value_object.get_mut(#db_name).take().map(|it| it.to_owned().try_into().unwrap()).into(),
-                    }
+        let type_name = type_to_string(&field.ty);
+        if (&vec_regex).is_match(&type_name) {
+            return quote! {
+                #field_name: match value_object.get_mut(#db_name) {
+                    Some(surrealdb::sql::Value::Array(ref mut array_obj)) => {
+                        array_obj.to_owned().into_iter().map(|item_obj| item_obj.to_owned().into()).collect()
+                    },
+                    _ => {
+                        panic!("Expected an array");
+                    },
                 },
-                "Vec" => {
-                    return quote! {
-                        #field_name: match value_object.get_mut(#db_name) {
-                            Some(surrealdb::sql::Value::Array(ref mut array_obj)) => {
-                                array_obj.to_owned().into_iter().map(|item_obj| item_obj.to_owned().into()).collect()
-                            },
-                            _ => {
-                                panic!("Expected an array");
-                            },
-                        }
-                    }
+            }
+        }
+
+        if (&option_vec_regex).is_match(&type_name) {
+            return quote! {
+                #field_name: match value_object.get_mut(#db_name) {
+                    Some(surrealdb::sql::Value::Array(ref mut array_obj)) => {
+                        Some(array_obj.to_owned().into_iter().map(|item_obj| item_obj.to_owned().into()).collect())
+                    },
+                    _ => None,
                 },
-                _ => {}
+            }
+        }
+
+        if (&option_of_any_regex).is_match(&type_name) {
+            return quote! {
+                #field_name: value_object.get_mut(#db_name).take().map(|it| it.to_owned().try_into().unwrap()).into(),
             };
         }
 
@@ -189,38 +199,59 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
             true => snake_case_to_camel(field_name.to_string().as_str()),
             false => camel_to_snake_case(field_name.to_string().as_str())
         };
+        let type_name = type_to_string(&field.ty);
+        if (&vec_regex).is_match(&type_name) {
+            return quote::quote! {
+                let mut array_value: std::vec::Vec<surrealdb::sql::Value> = self.#field_name.iter().map(|v| {
+                    surrealdb::sql::Value::from(v)
+                })
+                .collect();
 
-        // Check if the field's type is Vec.
-        if let syn::Type::Path(type_path) = &field.ty {
-            if type_path.path.segments.first().unwrap().ident.to_string() == "Vec" {
-                return quote::quote! {
-                   let mut array_value: std::vec::Vec<surrealdb::sql::Value> = self.#field_name.iter().map(|v| {
-                       surrealdb::sql::Value::from(v)
-                   })
-                   .collect();
+                vec.push((
+                    surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                   surrealdb::sql::Value::from(array_value)) // value
+                );
+            };
+        }
 
-                   vec.push((
-                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
-                       surrealdb::sql::Value::from(array_value)) // value
-                   );
-               };
-            }
-            if type_path.path.segments.iter().find(|s| s.ident.to_string() == "Duration").is_some() {
-                return quote::quote! {
-                   vec.push((
-                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
-                       surrealdb::sql::Value::from(surrealdb::sql::Duration::from(self.#field_name.clone()))) // value
-                   );
-               };
-            }
-            if type_path.path.segments.iter().find(|s| s.ident.to_string() == "Option").is_some() {
-                return quote::quote! {
-                   vec.push((
-                       surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
-                       self.#field_name.clone().map(|it| surrealdb::sql::Value::from(it)).unwrap_or(surrealdb::sql::Value::None))
-                   );
-               };
-            }
+        if (&option_vec_regex).is_match(&type_name) {
+            return quote::quote! {
+                if (&self.#field_name).is_none() {
+                    vec.push((
+                        surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                        surrealdb::sql::Value::None) // value
+                    );
+                }
+                else {
+                    let mut array_value: std::vec::Vec<surrealdb::sql::Value> = self.#field_name.as_ref().unwrap().iter().map(|v| {
+                        surrealdb::sql::Value::from(v)
+                    })
+                    .collect();
+
+                    vec.push((
+                        surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                        surrealdb::sql::Value::from(array_value)) // value
+                    );
+                }
+            };
+        }
+
+        if (&duration_regex).is_match(&type_name) {
+            return quote::quote! {
+                vec.push((
+                    surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                    surrealdb::sql::Value::from(surrealdb::sql::Duration::from(self.#field_name.clone()))) // value
+                );
+            };
+        }
+
+        if (&option_of_any_regex).is_match(&type_name) {
+            return quote::quote! {
+                vec.push((
+                    surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
+                    self.#field_name.clone().map(|it| surrealdb::sql::Value::from(it)).unwrap_or(surrealdb::sql::Value::None))
+                );
+            };
         }
 
         quote::quote! {
@@ -311,4 +342,42 @@ pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenS
     };
 
     gen.into()
+}
+
+fn type_to_string(ty: &Type) -> String {
+    match ty {
+        Type::Path(type_path) => {
+            let mut type_name = type_path
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<String>>()
+                .join("::");
+
+            if let Some(last_segment) = type_path.path.segments.last() {
+                if let syn::PathArguments::AngleBracketed(args) = &last_segment.arguments {
+                    let inner_types: Vec<String> = args
+                        .args
+                        .iter()
+                        .filter_map(|arg| {
+                            if let syn::GenericArgument::Type(ty) = arg {
+                                Some(type_to_string(ty))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if !inner_types.is_empty() {
+                        let inner_str = inner_types.join(", ");
+                        type_name = format!("{}<{}>", type_name, inner_str);
+                    }
+                }
+            }
+
+            type_name
+        }
+        _ => format!("{:?}", ty), // For simplicity, handle only Type::Path here
+    }
 }

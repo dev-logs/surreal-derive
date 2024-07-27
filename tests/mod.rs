@@ -17,7 +17,8 @@ mod test {
         age_option: Option<i32>,
         object: User,
         option_object: Option<User>,
-        vec_object: Vec<User>
+        vec_object: Vec<User>,
+        vec_option_object: Option<Vec<User>>
     }
 
     impl Into<RecordId> for User1 {

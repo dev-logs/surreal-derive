@@ -1,6 +1,6 @@
 [package]
 name = "surreal_derive_plus"
-version = "1.0.14"
+version = "1.0.15"
 edition = "2021"
 description = "Query builder for surrealdb"
 readme = "README.md"
@@ -19,6 +19,7 @@ proc-macro2 = "1.0.67"
 surreal_devl = "1.0.6"
 surrealdb_id = "0.1.1"
 darling = "0.20.9"
+regex = "1.10.5"
 
 [dev-dependencies]
 chrono = "0.4.35"
