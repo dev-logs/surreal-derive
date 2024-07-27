@@ -145,10 +145,10 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
 pub fn surreal_derive_process_struct(ast: syn::ItemStruct) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
-    let vec_regex = Regex::new(r"^(?:std::vec::)?Vec\s*<.*>$").unwrap();
-    let option_vec_regex = Regex::new(r"^(?:std::option::)?Option\s*<(?:std::vec::)?Vec\s*<.*>>$").unwrap();
-    let option_of_any_regex = Regex::new(r"^(?:std::option::)?Option\s*<.*>$").unwrap();
-    let duration_regex = Regex::new(r"^(?:std::time::)?Duration$").unwrap();
+    let vec_regex = Regex::new(r"^(?:::)?(?:std::vec::)?Vec\s*<.*>$").unwrap();
+    let option_vec_regex = Regex::new(r"^(?:::)?(?:core::option::)?(?:std::option::)?Option\s*<(?:std::vec::)?Vec\s*<.*>>$").unwrap();
+    let option_of_any_regex = Regex::new(r"^(?:::)?(?:core::option::)?(?:std::option::)?Option\s*<.*>$").unwrap();
+    let duration_regex = Regex::new(r"^(?:::)?(?:std::time::)?Duration$").unwrap();
 
     let from_value_field_converters = ast.fields.iter().map(|field| {
         let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
@@ -379,5 +379,22 @@ fn type_to_string(ty: &Type) -> String {
             type_name
         }
         _ => format!("{:?}", ty), // For simplicity, handle only Type::Path here
+    }
+}
+
+mod test {
+    #[test]
+    pub fn regex_test() {
+        use regex::Regex;
+        let vec_regex = Regex::new(r"^(?:::)?(?:std::vec::)?Vec\s*<.*>$").unwrap();
+        let option_vec_regex = Regex::new(r"^(?:::)?(?:core::option::)?(?:std::option::)?Option\s*<(?:std::vec::)?Vec\s*<.*>>$").unwrap();
+        let option_of_any_regex = Regex::new(r"^(?:::)?(?:core::option::)?(?:std::option::)?Option\s*<.*>$").unwrap();
+        let duration_regex = Regex::new(r"^(?:::)?(?:std::time::)?Duration$").unwrap();
+
+        assert_eq!(option_of_any_regex.is_match("::core::option::Option<super::super::super::surrealdb::links::AuthorLink,>") , true);
+        assert_eq!(option_of_any_regex.is_match("core::option::Option<super::super::super::surrealdb::links::AuthorLink,>") , true);
+        assert_eq!(option_of_any_regex.is_match("std::option::Option<super::super::super::surrealdb::links::AuthorLink,>") , true);
+        assert_eq!(option_of_any_regex.is_match("std::option::Option<post_link::Link>") , true);
+        assert_eq!(option_of_any_regex.is_match("::core::option::Option<super::super::super::surrealdb::links::UserLink>") , true);
     }
 }

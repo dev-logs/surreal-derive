@@ -17,8 +17,27 @@ mod test {
         age_option: Option<i32>,
         object: User,
         option_object: Option<User>,
+        option_object2: Option<User2>,
+        vec_object: Vec<User>,
+        vec_option_object: Option<Vec<User>>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
+    struct User2 {
+        name: String,
+        name_option: Option<String>,
+        age: i32,
+        age_option: Option<i32>,
+        object: User,
+        option_object: Option<User>,
         vec_object: Vec<User>,
         vec_option_object: Option<Vec<User>>
+    }
+
+    impl Into<RecordId> for User2 {
+        fn into(self) -> RecordId {
+            RecordId::from(("user2", self.name.as_str()))
+        }
     }
 
     impl Into<RecordId> for User1 {
