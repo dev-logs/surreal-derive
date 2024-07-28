@@ -1,6 +1,6 @@
 [package]
 name = "surreal_derive_plus"
-version = "1.0.16"
+version = "1.0.17"
 edition = "2021"
 description = "Query builder for surrealdb"
 readme = "README.md"

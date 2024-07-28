@@ -8,6 +8,29 @@ mod test {
     use surrealdb_id::relation::r#trait::IntoRelation;
     use surreal_derive_plus::{surreal_quote, SurrealDerive};
 
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
+    struct UserId {
+        name: String
+    }
+
+    impl From<UserId> for RecordId {
+       fn from(value: UserId) -> Self {
+           RecordId::from(("user2", value.name.as_str()))
+       }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
+    #[surreal_derive(untagged = true)]
+    struct UserLink {
+        user_id: Option<UserId>
+    }
+
+    impl From<UserLink> for RecordId {
+       fn from(value: UserLink) -> Self {
+           RecordId::from(("user2", ""))
+       }
+    }
+
     // Entity 0
     #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
     struct User1 {
@@ -19,6 +42,8 @@ mod test {
         option_object: Option<User>,
         option_object2: Option<User2>,
         vec_object: Vec<User>,
+        user: Option<UserLink>,
+        names: Vec<String>,
         vec_option_object: Option<Vec<User>>,
     }
 
