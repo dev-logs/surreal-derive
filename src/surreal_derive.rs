@@ -81,11 +81,11 @@ pub fn surreal_derive_process_enum(ast: syn::ItemEnum) -> proc_macro::TokenStrea
     let gen = quote::quote! {
         impl From<surrealdb::sql::Value> for #enum_name {
             fn from(value: surrealdb::sql::Value) -> Self {
-                match value {
-                    surrealdb::sql::Value::Thing(_) => {
-                        return Self::Id(value.into());
+                match &value {
+                    surrealdb::sql::Value::Thing(thing) => {
+                        return Self::Id(thing.to_owned().into());
                     },
-                    surrealdb::sql::Value::Object(_) => {
+                    surrealdb::sql::Value::Object(object) => {
                         return Self::Object(value.into());
                     },
                     _ => {
@@ -307,8 +307,10 @@ pub fn surreal_derive_process_struct(
     };
 
     let from_value = {
+        let struct_name_string = struct_name.to_string();
         if !attributes.untagged {
             quote::quote! {
+                 let message = format!("{} expected an object or array with one item is object, but got {:?}", #struct_name_string, &value);
                  let mut value_object = match value {
                     surrealdb::sql::Value::Object(mut value_object) => {
                          value_object
@@ -318,11 +320,11 @@ pub fn surreal_derive_process_struct(
                              value_object
                          }
                          else {
-                             panic!("Expected an object or array with one item is object");
+                             panic!("{message}");
                          }
                      }
                      _ => {
-                         panic!("Expected an object or array with one item")
+                         panic!("{message}")
                      }
                 };
 
@@ -453,6 +455,43 @@ pub fn surreal_derive_process_struct(
     };
 
     let impl_into_record_id = {
+        if attributes.untagged {
+            let field = ast.fields.iter().nth(0).unwrap();
+            let field_name = field
+            .ident
+            .as_ref()
+            .expect("Failed to process variable name, the ident could not be empty");
+            let field = ast.fields.iter().nth(0).unwrap();
+            let field_name = field
+            .ident
+            .as_ref()
+            .expect("Failed to process variable name, the ident could not be empty");
+            let type_name = type_to_string(&field.ty);
+            if (&option_of_any_regex).is_match(&type_name) {
+                quote::quote! {
+                    impl Into<surrealdb::opt::RecordId> for #struct_name {
+                        fn into(mut self) -> surrealdb::opt::RecordId {
+                            Into::<surrealdb::opt::RecordId>::into(self.#field_name.unwrap().clone())
+                        }
+                    }
+                }
+            }
+            else {
+                quote::quote! {
+                    impl Into<surrealdb::opt::RecordId> for #struct_name {
+                        fn into(&self) -> surrealdb::opt::RecordId {
+                            Into::<surrealdb::opt::RecordId>::into(self.#field_name.clone())
+                        }
+                    }
+                }
+            }
+        }
+        else {
+            quote::quote! {}
+        }
+    };
+
+    let impl_into_record_id_ref = {
         quote::quote! {
             self.clone().into()
         }
@@ -489,9 +528,11 @@ pub fn surreal_derive_process_struct(
             }
         }
 
+        #impl_into_record_id
+
         impl Into<surrealdb::opt::RecordId> for &#struct_name {
             fn into(self) -> surrealdb::opt::RecordId {
-                #impl_into_record_id
+                #impl_into_record_id_ref
             }
         }
     };
