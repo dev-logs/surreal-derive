@@ -461,11 +461,6 @@ pub fn surreal_derive_process_struct(
             .ident
             .as_ref()
             .expect("Failed to process variable name, the ident could not be empty");
-            let field = ast.fields.iter().nth(0).unwrap();
-            let field_name = field
-            .ident
-            .as_ref()
-            .expect("Failed to process variable name, the ident could not be empty");
             let type_name = type_to_string(&field.ty);
             if (&option_of_any_regex).is_match(&type_name) {
                 quote::quote! {
