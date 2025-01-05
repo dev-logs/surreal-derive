@@ -1,12 +1,12 @@
 # <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal derive
 # Description
-Simple library for writing [**SurrealQL** ](https://surrealdb.com/docs/surrealql), this is just a verythin layer on top of [SurrealDb Rust SDK](https://surrealdb.com/docs/integration/sdks/rust).
+- Support serialize and deserialize your struct into `surrealdb::sql::Value` with support for both nested struct and foreign key
+- Generate query statement
+- Quick access to the query result from path
 
-### An interesting solution for working with RecordId and Relate statement
-Take a look on my other crate call [surrealdb-id ](https://crates.io/crates/surrealdb_id).
 # Installation
 ### 1. Install surreal-devl: https://crates.io/crates/surreal_devl
-Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and the your defined Struct, also support working with **Array**, **ID** or **DateTime**
+Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and your defined structs, also support working with **Array**, **ID** or **DateTime**
 ```console
 cargo add sureal_devl
 ```
@@ -16,35 +16,63 @@ cargo add surreal_derive_plus
 ```
 ### Note:
 
-Current restriction that will be resolved in future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
+Current restriction that will be resolved in the future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
 
 # Usage
-### Mark your struct as surreal_derive.
-This will will automatically generate code that could convert your struct into [surrealdb idioms](https://docs.rs/surrealdb/1.0.0/surrealdb/sql/struct.Idiom.html)
+### Serialize and deserialize
 ```rust
-use serde::{Deserialize, Serialize};
 use surreal_derive_plus::SurrealDerive;
 
-#[derive(Debug, Serialize, Deserialize, SurrealDerive, Clone)]
+#[derive(Debug, SurrealDerive, Clone)]
 pub struct User {
     pub name: String,
     pub password: String,
 }
 ```
-
-### Implement the Into/<surrealdb::value::RecordId> trait
+Then we will able to serialize a struct into value and vice versa
 ```rust
-use surrealdb::opt::RecordId;
-use crate::entities::user::User;
+let user = User {
+    name: String::from("tiendang"),
+    password: String::from("123123")
+};
+    
+let value: surrealdb::sql::value = user.into();
+let new_user: User = value.into();
+```
 
-impl Into<RecordId> for User {
-    fn into(self) -> RecordId {
-        return RecordId::from(("user", self.name.as_str()));
+### Nested struct:
+```rust
+struct User {
+   name: String 
+}
+
+#[derive(SurrealDerive)]
+struct UserFriend {
+    // Serialize friend will be friend = { name: "something" }
+    friend: User
+}
+```
+### Foreign key
+```rust
+struct User {
+   name: String 
+}
+
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
     }
+}
+
+#[derive(SurrealDerive)]
+struct UserFriend {
+    // Serialize friend will always be an id, eg: `friend = user:<john>`
+    // Deserialize will be Link::Id or Link:Record if we fetch
+    friend: Link<User> 
 }
 ```
 
-### Write query by using surreal_derive_plus::surreal_quote! macro
+### Generate query with surreal_quote macro
 #### Struct
 ```rust
 use surreal_derive_plus::surreal_quote;
@@ -107,6 +135,7 @@ assert_eq!(query_statement, "CREATE party SET duration = 2h, '2023-01-01T14:00:0
 ```
 
 #### Surreal ID
+Convert a struct into it's id if it has implement `SurrealId` trait
 ```rust
 let user =  User {
     name: "clay".to_string(),
@@ -119,45 +148,23 @@ let query_statement = surreal_derive_plus::surreal_quote!("UPDATE #id(&user) SET
 assert_eq!(query_statement, "UPDATE user:clay SET age = 10");
 ```
 
-#### Surreal Value
-This will wrap the variable inside surrealdb::sql::Value::from()
+#### Value
 ```rust
 let str = String::from("string");
 let statement = surreal_derive_plus::surreal_quote!("CREATE user SET full_name = #val(&str)");
 assert_eq!(statement, "CREATE user SET full_name = 'string'");
 ```
 
-#### Relation
-Using with surrealdb-id crate we can simplify the process of working with relate statement, then you can generate entire relate statement
+# SurrealQR: Quick access to query result
 
-link here: https://crates.io/crates/surrealdb_id
-
-Example:
 ```rust
-let user: RecordId = RecordId::from(("user", "Devlog"));
-let blogPost: RecordId = RecordId::from(("blogPost", "How to use surrealdb"));
-let discussion = Discussion { content: "Hello I really want to know more".to_string(), created_at: Default::default() };
-let relation = discussion.relate(user, blogPost)
 
-assert_eq!(
-    surreal_quote!("#relate(&relation)"),
-    "RELATE user:Devlog -> discuss -> blogPost:⟨How to use surrealdb⟩ SET content = 'Hello I really want to know more', created_at = '1970-01-01T00:00:00Z'"
-);
-```
-
-#### Surreal Resource
-```rust
-let new_user = User {
-    name: "surreal".to_string(),
-    password: "000000".to_string(),
-};
-
-db.create(Resource::RecordId(new_user.id())).content(&user);
 ```
 
 # Customize setting
-You can customize the setting inside cargo.toml
-it is neccessary for call cargo clean to apply all of these configuration
+We can customize the setting inside cargo.toml
+
+You might need to call `cargo clean` to take effect
 ```cargo.toml
 [package.metadata]
 # Will log the query command at runtime

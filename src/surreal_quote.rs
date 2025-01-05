@@ -1,6 +1,6 @@
-use surreal_devl::config::SurrealDeriveConfig;
-use proc_macro2::{TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
+use surreal_devl::config::SurrealDeriveConfig;
 
 pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
@@ -49,7 +49,7 @@ pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
                             output = output.trim().to_string();
                             output.push(' ');
                             break;
-                        },
+                        }
                         _ => {
                             content.push(c);
                         }
@@ -69,9 +69,10 @@ pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
     }
 
     output = output.trim().to_owned();
-    let values = values.clone().into_iter().map(|it| {
-        syn::parse_str::<TokenStream> (&it).unwrap()
-    });
+    let values = values
+        .clone()
+        .into_iter()
+        .map(|it| syn::parse_str::<TokenStream>(&it).unwrap());
 
     let log_namespace = config.namespace;
     let log_fn = syn::parse_str::<TokenStream>(config.info_log_macro.as_str()).unwrap();
@@ -81,7 +82,9 @@ pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
                 #log_fn!("{}: {}", #log_namespace, statement);
             }
         }
-        false => {quote! {}}
+        false => {
+            quote! {}
+        }
     };
 
     let output: proc_macro::TokenStream = (quote::quote! {{
@@ -89,7 +92,8 @@ pub fn surreal_quote(input: String) -> proc_macro::TokenStream {
         let statement = format!(#output, #(#values),*);
         #debug_log
         statement
-    }}).into();
+    }})
+    .into();
 
     if config.enable_compile_log {
         println!("DEBUG: {}  {}", log_namespace, output);

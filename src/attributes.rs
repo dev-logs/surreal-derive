@@ -8,8 +8,6 @@ pub struct SurrealDeriveAttribute {
 
 impl Default for SurrealDeriveAttribute {
     fn default() -> Self {
-        Self {
-           untagged: false,
-        }
+        Self { untagged: false }
     }
 }

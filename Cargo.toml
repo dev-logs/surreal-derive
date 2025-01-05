@@ -1,29 +1,28 @@
 [package]
 name = "surreal_derive_plus"
-version = "1.0.18"
+version = "2.0.0"
 edition = "2021"
 description = "Query builder for surrealdb"
 readme = "README.md"
 repository = "https://github.com/dev-logs/surreal-derive"
 license = "MIT"
+homepage = "https://devlog.studio"
 keywords = ["surreal", "surrealdb", "db", "query-builder", "surrealql"]
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = { version = "2.0.38", features = ["full"] }
-quote = "1.0.33"
-surrealdb = { version = "1.0.0", default-features = false }
-proc-macro2 = "1.0.67"
-surreal_devl = "1.0.11"
-surrealdb_id = "0.1.1"
-darling = "0.20.9"
-regex = "1.10.5"
+syn = { version = "^2.0.38", features = ["full"] }
+quote = "^1.0.33"
+proc-macro2 = "^1.0.67"
+surreal_devl = {path="../surreal-devl"}
+darling = "^0.20.9"
+surrealdb = { version = "^2.1.4", default-features = false }
 
 [dev-dependencies]
+surrealdb = { version = "^2.1.4", features = ["kv-mem"] }
 chrono = "0.4.35"
 serde = { version = "1.0.118", features = ["derive"] }
-serde_json = "1.0.107"
-tokio = "1.36.0"
 serde_derive = "1.0.196"
+tokio = "1.42.0"
