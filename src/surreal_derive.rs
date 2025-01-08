@@ -20,7 +20,7 @@ pub fn surreal_derive_process_struct(
         };
 
         return quote! {
-            #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name).take()),
+            #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name).take())?,
         };
     });
 
@@ -67,11 +67,12 @@ pub fn surreal_derive_process_struct(
 
     let from_object = {
         quote::quote! {
-            impl From<surrealdb::sql::Object> for #struct_name {
-                fn from(mut value_object: surrealdb::sql::Object) -> Self {
-                    return Self {
+            impl TryFrom<surrealdb::sql::Object> for #struct_name {
+                type Error = surreal_devl::surreal_qr::SurrealResponseError;
+                fn try_from(mut value_object: surrealdb::sql::Object) -> Result<Self, Self::Error> {
+                    return Ok(Self {
                         #(#from_object_field_converters)*
-                    }
+                    })
                 }
             }
         }
@@ -112,12 +113,12 @@ pub fn surreal_derive_process_struct(
         #into_object
 
         impl surreal_devl::proxy::default::SurrealDeserializer for #struct_name {
-            fn deserialize(value: &surrealdb::sql::Value) -> Self {
+            fn deserialize(value: &surrealdb::sql::Value) -> Result<Self, surreal_devl::surreal_qr::SurrealResponseError> {
                 match value {
                     surrealdb::sql::Value::Object(obj) => {
-                        Self::from(obj.clone())
+                        Ok(Self::try_from(obj.clone())?)
                     },
-                    _ => panic!("Expected an object")
+                    _ => Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
                 }
             }
         }

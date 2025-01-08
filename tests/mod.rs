@@ -19,7 +19,6 @@ mod test_derive_macro {
             Thing::from(("simple_entity", self.name.as_str()))
         }
     }
-
     /// Complex entity with optional fields and nested SurrealDerive
     #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
     struct ComplexEntity {
@@ -58,7 +57,7 @@ mod test_derive_macro {
         let val: Value = entity.clone().serialize();
 
         // Convert back
-        let new_entity: SimpleEntity = SurrealDeserializer::deserialize(&val);
+        let new_entity: SimpleEntity = SurrealDeserializer::deserialize(&val).unwrap();
 
         assert_eq!(entity, new_entity);
     }
@@ -73,7 +72,7 @@ mod test_derive_macro {
         };
 
         let val: Value = entity.clone().serialize();
-        let new_entity: ComplexEntity = SurrealDeserializer::deserialize(&val);
+        let new_entity: ComplexEntity = SurrealDeserializer::deserialize(&val).unwrap();
 
         assert_eq!(entity, new_entity);
     }
@@ -93,7 +92,7 @@ mod test_derive_macro {
         };
 
         let val: Value = entity.clone().serialize();
-        let new_entity: ComplexEntity = SurrealDeserializer::deserialize(&val);
+        let new_entity: ComplexEntity = SurrealDeserializer::deserialize(&val).unwrap();
 
         assert_eq!(entity.title, new_entity.title);
         assert_eq!(entity.tags, new_entity.tags);
@@ -109,7 +108,7 @@ mod test_derive_macro {
         map.insert("age".to_string(), Value::from(45));
 
         let object = Object::from(map);
-        let entity: SimpleEntity = object.into();
+        let entity: SimpleEntity = object.try_into().unwrap();
 
         assert_eq!(entity.name, "Charlie");
         assert_eq!(entity.age, 45);
@@ -165,7 +164,7 @@ mod test_derive_macro {
             timestamp: sample_time,
         };
         let val: Value = timed_entity.clone().serialize();
-        let new_timed_entity: TimedEntity = SurrealDeserializer::deserialize(&val);
+        let new_timed_entity: TimedEntity = SurrealDeserializer::deserialize(&val).unwrap();
 
         assert_eq!(timed_entity, new_timed_entity);
     }
@@ -185,7 +184,7 @@ mod test_derive_macro {
         };
 
         let val: Value = complex.clone().serialize();
-        let new_complex: ComplexEntity = SurrealDeserializer::deserialize(&val);
+        let new_complex: ComplexEntity = SurrealDeserializer::deserialize(&val).unwrap();
         assert_eq!(complex, new_complex);
     }
 
@@ -204,7 +203,7 @@ mod test_derive_macro {
         };
 
         let val: Value = entity.clone().serialize();
-        let new_entity: VectorEntity = SurrealDeserializer::deserialize(&val);
+        let new_entity: VectorEntity = SurrealDeserializer::deserialize(&val).unwrap();
         assert_eq!(entity, new_entity);
     }
 }
@@ -453,7 +452,10 @@ mod test_in_memory_integration {
         engine::local::Db, opt::auth::Root, sql::Thing, Surreal
     };
     use surreal_devl::{surreal_id::{Link, SurrealId}, surreal_qr::SurrealQR};
+    use surreal_devl::surreal_qr::RPath;
     use surrealdb::engine::local::Mem;
+    use surrealdb::sql::Value;
+
     // --------------------------
     // Sample structs with fields
     // --------------------------
@@ -465,7 +467,7 @@ mod test_in_memory_integration {
         db
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive)]
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
     struct User {
         username: String,
         friend: Option<Item>,
@@ -488,17 +490,10 @@ mod test_in_memory_integration {
         description: Option<String>,
     }
 
-
-    impl SurrealId for Item {
-        fn id(&self) -> Thing {
-            Thing::from(("item", self.name.as_str()))
-        }
-    }
-
     #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
     struct Inventory {
         user: Link<User>,
-        items: Vec<Link<Item>>,
+        items: Vec<Item>,
         note: Option<String>,
     }
 
@@ -523,9 +518,7 @@ mod test_in_memory_integration {
             created_at: Utc::now(),
         };
 
-        let statement = surreal_quote!("CREATE #record(&user)");
-        db.query(statement).await.unwrap();
-
+        let user = db.query(surreal_quote!("CREATE #record(&user)")).await.unwrap();
         let result: Option<User> = db.select(("user", "test_user")).await.unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().username, "test_user");
@@ -610,10 +603,9 @@ mod test_in_memory_integration {
             .unwrap();
 
         // Delete the user
-        let result: SurrealQR = db.query(surreal_quote!("DELETE user #id(&user)")).await.unwrap().take(0).unwrap();
-
-        let result: Option<User> = db.select(("user", "delete_user")).await.unwrap();
-        assert!(result.is_none());
+        let deleted_result: SurrealQR = db.query(surreal_quote!("DELETE #id(&user)")).await.unwrap().take(0).unwrap();
+        let deleted_user: Option<User> = deleted_result.deserialize().unwrap();
+        assert_eq!(deleted_user, Some(user));
     }
 
     #[tokio::test]
@@ -639,19 +631,9 @@ mod test_in_memory_integration {
             created_at: Utc::now(),
         };
 
-        db.query(surreal_quote!("CREATE #record(&item1)"))
-            .await
-            .unwrap();
-        db.query(surreal_quote!("CREATE #record(&item2)"))
-            .await
-            .unwrap();
-        db.query(surreal_quote!("CREATE #record(&user)"))
-            .await
-            .unwrap();
-
         let inventory = Inventory {
             user: Link::Record(user.clone()),
-            items: vec![Link::Record(item1), Link::Record(item2)],
+            items: vec![item1, item2],
             note: Some("User's inventory".to_string()),
         };
 
@@ -663,6 +645,7 @@ mod test_in_memory_integration {
             .select(("inventory", "inventory_user"))
             .await
             .unwrap();
+
         assert!(stored_inventory.is_some());
         assert_eq!(stored_inventory.unwrap().items.len(), 2);
     }
