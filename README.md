@@ -154,7 +154,7 @@ let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET age =
 #### Array
 ```rust
 let arr = vec![1,2,3,1];
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #array(&arr)");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #val(&arr)");
 ```
 #### Struct Array
 ```rust
@@ -171,7 +171,7 @@ let friends = vec![
     }
 ];
 
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #array(&friends)");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #val(&friends)");
 ```
 #### DateTime
 ```rust

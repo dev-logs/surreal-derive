@@ -356,7 +356,7 @@ mod test_surreal_quote {
     fn test_array_statement() {
         let items = vec!["one".to_owned(), "two".to_owned(), "three".to_owned()];
         // #array(&items) might produce "['one','two','three']"
-        let statement = surreal_quote!("LET arr = #array(&items)");
+        let statement = surreal_quote!("LET arr = #val(&items)");
         assert_eq!("LET arr = ['one', 'two', 'three']", statement);
     }
 
