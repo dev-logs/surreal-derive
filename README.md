@@ -1,30 +1,37 @@
-# <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal derive
+# <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal Derive
 # Description
-- Generate query statement
-- Easy access to the query result from path
-- Support serialize into `surrealdb::sql::Value` and deserialize from `surrealdb::sql::Value` instead of using serde
-- Support id and nested struct
-- Support relation 
+- Generates query statements
+- Provides easy access to query results via paths
+- Supports serialization to `surrealdb::sql::Value` and deserialization from `surrealdb::sql::Value` instead of using serde
+- Supports IDs and nested structs
+- Supports relations
 
 # Installation
+
 ### 1. Install surreal-devl: https://crates.io/crates/surreal_devl
-Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and your defined structs, also support working with **Array**, **ID** or **DateTime**
 ```console
-cargo add sureal_devl
+cargo add surreal_devl
 ```
 ### 2. Install surreal-derive:
 ```console
 cargo add surreal_derive_plus
 ```
-### Note:
-
-Current restriction that will be resolved in the future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
 
 # Usage:
 
 ### Generate query statement
 ```rust
-let user = User { name: "john", age: 30 };
+use surreal_derive_plus::{SurrealDerive, surreal_quote};
+use surrealdb::sql::Value;
+
+// Example 1: Generate query statement
+#[derive(SurrealDerive)]
+struct User {
+    name: String,
+    age: i32,
+}
+
+let user = User { name: "john".to_string(), age: 30 };
 // Generates: CREATE user:john SET name = 'john', age = 30
 let query = surreal_quote!("CREATE #record(&user)");
 ```
@@ -197,10 +204,10 @@ let user =  User {
 let query_statement = surreal_derive_plus::surreal_quote!("UPDATE #id(&user) SET age = 10");
 ```
 
-# Customize setting
-We can customize the setting inside cargo.toml
+# Custom Settings
+You can customize settings inside Cargo.toml
 
-You might need to call `cargo clean` to take effect
+You might need to call `cargo clean` for changes to take effect
 ```cargo.toml
 [package.metadata]
 # Will log the query command at runtime
@@ -215,4 +222,32 @@ surreal_namespace = "surrealql-derive"
 surreal_info_log_macro = "println"
 # The macro name that use for warning log, for example
 surreal_warn_log_macro = "println"
+```
+
+# License
+
+This project is licensed under the MIT License - see below for details:
+
+```text
+MIT License
+
+Copyright (c) 2024 surreal-derive contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
