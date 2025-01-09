@@ -1,76 +1,160 @@
-# <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal derive
+# <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal Derive
 # Description
-Simple library for writing [**SurrealQL** ](https://surrealdb.com/docs/surrealql), this is just a verythin layer on top of [SurrealDb Rust SDK](https://surrealdb.com/docs/integration/sdks/rust).
+- Generates query statements
+- Provides easy access to query results via paths
+- Supports serialization to `surrealdb::sql::Value` and deserialization from `surrealdb::sql::Value` instead of using serde
+- Supports IDs and nested structs
+- Supports relations
 
-### An interesting solution for working with RecordId and Relate statement
-Take a look on my other crate call [surrealdb-id ](https://crates.io/crates/surrealdb_id).
 # Installation
+
 ### 1. Install surreal-devl: https://crates.io/crates/surreal_devl
-Contains the core logic of the whole library, the main purpose is to act as a bridge between SurrealDb SDK and the your defined Struct, also support working with **Array**, **ID** or **DateTime**
 ```console
-cargo add sureal_devl
+cargo add surreal_devl
 ```
 ### 2. Install surreal-derive:
 ```console
 cargo add surreal_derive_plus
 ```
-### Note:
 
-Current restriction that will be resolved in future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
+# Usage:
 
-# Usage
-### Mark your struct as surreal_derive.
-This will will automatically generate code that could convert your struct into [surrealdb idioms](https://docs.rs/surrealdb/1.0.0/surrealdb/sql/struct.Idiom.html)
+### Generate query statement
 ```rust
-use serde::{Deserialize, Serialize};
-use surreal_derive_plus::SurrealDerive;
+use surreal_derive_plus::{SurrealDerive, surreal_quote};
+use surrealdb::sql::Value;
 
-#[derive(Debug, Serialize, Deserialize, SurrealDerive, Clone)]
-pub struct User {
-    pub name: String,
-    pub password: String,
+// Example 1: Generate query statement
+#[derive(SurrealDerive)]
+struct User {
+    name: String,
+    age: i32,
 }
+
+let user = User { name: "john".to_string(), age: 30 };
+// Generates: CREATE user:john SET name = 'john', age = 30
+let query = surreal_quote!("CREATE #record(&user)");
 ```
 
-### Implement the Into/<surrealdb::value::RecordId> trait
+### Easy access to query result from path
 ```rust
-use surrealdb::opt::RecordId;
-use crate::entities::user::User;
+let result: SurrealQR = db.query("SELECT * FROM user").await?.take(RPath::from(0));
+// Access nested fields
+let name: Option<String> = result.get(RPath::from("user").get("name"))?.deserialize()?;
+```
 
-impl Into<RecordId> for User {
-    fn into(self) -> RecordId {
-        return RecordId::from(("user", self.name.as_str()));
+### Serialize and Deserialize
+```rust
+#[derive(SurrealDerive)]
+struct User {
+    name: String,
+    age: i32,
+}
+
+// Serialize
+let user = User { name: "alice", age: 25 };
+let value: Value = user.serialize();
+
+// Deserialize
+let user: User = SurrealDeserializer::deserialize(&value)?;
+```
+
+### Support id and nested struct
+```rust
+#[derive(SurrealDerive)]
+struct Address {
+    street: String,
+    city: String,
+}
+
+#[derive(SurrealDerive)]
+struct User {
+    name: String,
+    address: Address,  // Nested struct
+}
+
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
+    }
+}
+
+#[derive(SurrealDerive)]
+struct Company {
+    user: Link<User>,
+    address: Address,  // Nested struct
+}
+
+let address = Address {
+    street: String::from("123 Main St"),
+    city: String::from("New York")
+};
+
+let user_address = Address {
+    street: String::from("122 Main St"),
+    city: String::from("New York")
+};
+
+let user = User {
+    name: String::from("john"),
+    address: user_address
+};
+
+let company = Company {
+    user: Link::from(user),
+    address: address
+};
+
+// Create user with nested struct address
+let query = db.query(surreal_quote!("CREATE #record(&user)")).await?;
+// Create company with link to user eg: user = user:john
+let query = surreal_quote!("CREATE #record(&company)");
+
+let result: Option<Company> = db.query("SELECT * FROM company").await?.take(RPath::from(0));
+```
+
+### Support relation
+```rust
+#[derive(SurrealDerive)]
+struct Employment {
+    role: String,
+    salary: f64,
+}
+
+let edge = Employment { 
+    role: "Developer",
+    salary: 100000.0 
+}.relate(employee, company);
+
+// Creates relation: RELATE employee:john->employment:developer->company:acme
+db.query(surreal_quote!("#relate(&edge)")).await?;
+```
+
+### Foreign key
+```rust
+struct User {
+   name: String,
+   // Link to user by using id, eg: `friend = user:<john>`
+   friend: Box<Link<User>>
+}
+
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
     }
 }
 ```
 
-### Write query by using surreal_derive_plus::surreal_quote! macro
-#### Struct
-```rust
-use surreal_derive_plus::surreal_quote;
-.... connect to your surreal db ...
-    
-let new_user = User {
-    name: "surreal".to_string(),
-    password: "000000".to_string(),
-};
-
-let created_user: Option<entities::user::User> = DB.query(surreal_quote!("CREATE #record(&new_user)")).await.unwrap().take(0).unwrap(); => CREATE user:surreal SET name='surreal', password='000000'
-```
-
-#### Variable
+### Variables
+#### Normal variable
 ```rust
 let age = 2;
 let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET age = #age");
-
-assert_eq!(query_statement, "CREATE user SET age = 2");
 ```
 #### Array
 ```rust
 let arr = vec![1,2,3,1];
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #array(&arr)");
-
-assert_eq!(query_statement, "CREATE user SET arr = [1, 2, 3, 1]");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #val(&arr)");
 ```
 #### Struct Array
 ```rust
@@ -87,27 +171,30 @@ let friends = vec![
     }
 ];
 
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #array(&friends)");
-assert_eq!(query_statement, "CREATE user SET friends = [user:Ethan, user:Olivia]");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #val(&friends)");
 ```
 #### DateTime
 ```rust
 let birthday: DateTime<Utc> = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birthday = #date(&birthday)");
-
-assert_eq!(query_statement, "CREATE user SET birthday = '2020-01-01T00:00:00Z'");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birthday = #val(&birthday)");
 ```
 
 #### Duration
 ```rust
 let party_duration = Duration::from_millis(2 * 60 * 60 * 1000);
 let party_started_at: DateTime<Utc> = Utc.with_ymd_and_hms(2023, 1, 1, 14, 0, 0).unwrap();
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE party SET duration = #duration(&party_duration), #date(&party_started_at)");
-assert_eq!(query_statement, "CREATE party SET duration = 2h, '2023-01-01T14:00:00Z'");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE party SET duration = #val(&party_duration), #val(&party_started_at)");
 ```
 
 #### Surreal ID
+Convert a struct into it's id if it has implement `SurrealId` trait
 ```rust
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
+    }
+}
+
 let user =  User {
     name: "clay".to_string(),
     full_name: "clay".to_string(),
@@ -115,49 +202,12 @@ let user =  User {
 };
 
 let query_statement = surreal_derive_plus::surreal_quote!("UPDATE #id(&user) SET age = 10");
-
-assert_eq!(query_statement, "UPDATE user:clay SET age = 10");
 ```
 
-#### Surreal Value
-This will wrap the variable inside surrealdb::sql::Value::from()
-```rust
-let str = String::from("string");
-let statement = surreal_derive_plus::surreal_quote!("CREATE user SET full_name = #val(&str)");
-assert_eq!(statement, "CREATE user SET full_name = 'string'");
-```
+# Custom Settings
+You can customize settings inside Cargo.toml
 
-#### Relation
-Using with surrealdb-id crate we can simplify the process of working with relate statement, then you can generate entire relate statement
-
-link here: https://crates.io/crates/surrealdb_id
-
-Example:
-```rust
-let user: RecordId = RecordId::from(("user", "Devlog"));
-let blogPost: RecordId = RecordId::from(("blogPost", "How to use surrealdb"));
-let discussion = Discussion { content: "Hello I really want to know more".to_string(), created_at: Default::default() };
-let relation = discussion.relate(user, blogPost)
-
-assert_eq!(
-    surreal_quote!("#relate(&relation)"),
-    "RELATE user:Devlog -> discuss -> blogPost:⟨How to use surrealdb⟩ SET content = 'Hello I really want to know more', created_at = '1970-01-01T00:00:00Z'"
-);
-```
-
-#### Surreal Resource
-```rust
-let new_user = User {
-    name: "surreal".to_string(),
-    password: "000000".to_string(),
-};
-
-db.create(Resource::RecordId(new_user.id())).content(&user);
-```
-
-# Customize setting
-You can customize the setting inside cargo.toml
-it is neccessary for call cargo clean to apply all of these configuration
+You might need to call `cargo clean` for changes to take effect
 ```cargo.toml
 [package.metadata]
 # Will log the query command at runtime
@@ -172,4 +222,32 @@ surreal_namespace = "surrealql-derive"
 surreal_info_log_macro = "println"
 # The macro name that use for warning log, for example
 surreal_warn_log_macro = "println"
+```
+
+# License
+
+This project is licensed under the MIT License - see below for details:
+
+```text
+MIT License
+
+Copyright (c) 2024 surreal-derive contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
