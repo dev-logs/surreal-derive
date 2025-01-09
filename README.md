@@ -1,8 +1,10 @@
 # <a href="url"><img src="https://github.com/dev-logs/surreal-derive/assets/27767477/a10ad106-83af-48a2-894f-a599613e0d79" width="48"></a>  Surreal derive
 # Description
-- Support serialize and deserialize your struct into `surrealdb::sql::Value` with support for both nested struct and foreign key
 - Generate query statement
-- Quick access to the query result from path
+- Easy access to the query result from path
+- Support serialize into `surrealdb::sql::Value` and deserialize from `surrealdb::sql::Thing` instead of using serde
+- Support id and nested struct
+- Support relation 
 
 # Installation
 ### 1. Install surreal-devl: https://crates.io/crates/surreal_devl
@@ -18,44 +20,50 @@ cargo add surreal_derive_plus
 
 Current restriction that will be resolved in the future: If your variable names coincide with any of the following supported statements: ["id", "val", "date", "duration", "record", "set", "content", "multi", "array"], kindly consider renaming them.
 
-# Usage
-### Serialize and deserialize
-```rust
-use surreal_derive_plus::SurrealDerive;
+# Usage:
 
-#[derive(Debug, SurrealDerive, Clone)]
-pub struct User {
-    pub name: String,
-    pub password: String,
-}
-```
-Then we will able to serialize a struct into value and vice versa
+### Generate query statement
 ```rust
-let user = User {
-    name: String::from("tiendang"),
-    password: String::from("123123")
-};
-    
-let value: surrealdb::sql::value = user.into();
-let new_user: User = value.into();
+let user = User { name: "john", age: 30 };
+// Generates: CREATE user:john SET name = 'john', age = 30
+let query = surreal_quote!("CREATE #record(&user)");
 ```
 
-### Nested struct:
+### Easy access to query result from path
 ```rust
+let result: SurrealQR = db.query("SELECT * FROM user").await?.take(RPath::from(0));
+// Access nested fields
+let name: Option<String> = result.get(RPath::from("user").get("name"))?.deserialize()?;
+```
+
+### Serialize and Deserialize
+```rust
+#[derive(SurrealDerive)]
 struct User {
-   name: String 
+    name: String,
+    age: i32,
+}
+
+// Serialize
+let user = User { name: "alice", age: 25 };
+let value: Value = user.serialize();
+
+// Deserialize
+let user: User = SurrealDeserializer::deserialize(&value)?;
+```
+
+### Support id and nested struct
+```rust
+#[derive(SurrealDerive)]
+struct Address {
+    street: String,
+    city: String,
 }
 
 #[derive(SurrealDerive)]
-struct UserFriend {
-    // Serialize friend will be friend = { name: "something" }
-    friend: User
-}
-```
-### Foreign key
-```rust
 struct User {
-   name: String 
+    name: String,
+    address: Address,  // Nested struct
 }
 
 impl SurrealId for User {
@@ -65,10 +73,68 @@ impl SurrealId for User {
 }
 
 #[derive(SurrealDerive)]
-struct UserFriend {
-    // Serialize friend will always be an id, eg: `friend = user:<john>`
-    // Deserialize will be Link::Id or Link:Record if we fetch
-    friend: Link<User> 
+struct Company {
+    user: Link<User>,
+    address: Address,  // Nested struct
+}
+
+let address = Address {
+    street: String::from("123 Main St"),
+    city: String::from("New York")
+};
+
+let user_address = Address {
+    street: String::from("122 Main St"),
+    city: String::from("New York")
+};
+
+let user = User {
+    name: String::from("john"),
+    address: user_address
+};
+
+let company = Company {
+    user: Link::from(user),
+    address: address
+};
+
+// Create user with nested struct address
+let query = db.query(surreal_quote!("CREATE #record(&user)")).await?;
+// Create company with link to user eg: user = user:john
+let query = surreal_quote!("CREATE #record(&company)");
+
+let result: Option<Company> = db.query("SELECT * FROM company").await?.take(RPath::from(0));
+```
+
+### Support relation
+```rust
+#[derive(SurrealDerive)]
+struct Employment {
+    role: String,
+    salary: f64,
+}
+
+let edge = Employment { 
+    role: "Developer",
+    salary: 100000.0 
+}.relate(employee, company);
+
+// Creates relation: RELATE employee:john->employment:developer->company:acme
+db.query(surreal_quote!("#relate(&edge)")).await?;
+```
+
+### Foreign key
+```rust
+struct User {
+   name: String,
+   // Link to user by using id, eg: `friend = user:<john>`
+   friend: Box<Link<User>>
+}
+
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
+    }
 }
 ```
 
@@ -153,12 +219,6 @@ assert_eq!(query_statement, "UPDATE user:clay SET age = 10");
 let str = String::from("string");
 let statement = surreal_derive_plus::surreal_quote!("CREATE user SET full_name = #val(&str)");
 assert_eq!(statement, "CREATE user SET full_name = 'string'");
-```
-
-# SurrealQR: Quick access to query result
-
-```rust
-
 ```
 
 # Customize setting
