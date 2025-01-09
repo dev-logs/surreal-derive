@@ -2,7 +2,7 @@
 # Description
 - Generate query statement
 - Easy access to the query result from path
-- Support serialize into `surrealdb::sql::Value` and deserialize from `surrealdb::sql::Thing` instead of using serde
+- Support serialize into `surrealdb::sql::Value` and deserialize from `surrealdb::sql::Value` instead of using serde
 - Support id and nested struct
 - Support relation 
 
@@ -138,33 +138,16 @@ impl SurrealId for User {
 }
 ```
 
-### Generate query with surreal_quote macro
-#### Struct
-```rust
-use surreal_derive_plus::surreal_quote;
-.... connect to your surreal db ...
-    
-let new_user = User {
-    name: "surreal".to_string(),
-    password: "000000".to_string(),
-};
-
-let created_user: Option<entities::user::User> = DB.query(surreal_quote!("CREATE #record(&new_user)")).await.unwrap().take(0).unwrap(); => CREATE user:surreal SET name='surreal', password='000000'
-```
-
-#### Variable
+### Variables
+#### Normal variable
 ```rust
 let age = 2;
 let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET age = #age");
-
-assert_eq!(query_statement, "CREATE user SET age = 2");
 ```
 #### Array
 ```rust
 let arr = vec![1,2,3,1];
 let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET arr = #array(&arr)");
-
-assert_eq!(query_statement, "CREATE user SET arr = [1, 2, 3, 1]");
 ```
 #### Struct Array
 ```rust
@@ -182,27 +165,29 @@ let friends = vec![
 ];
 
 let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET friends = #array(&friends)");
-assert_eq!(query_statement, "CREATE user SET friends = [user:Ethan, user:Olivia]");
 ```
 #### DateTime
 ```rust
 let birthday: DateTime<Utc> = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birthday = #date(&birthday)");
-
-assert_eq!(query_statement, "CREATE user SET birthday = '2020-01-01T00:00:00Z'");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE user SET birthday = #val(&birthday)");
 ```
 
 #### Duration
 ```rust
 let party_duration = Duration::from_millis(2 * 60 * 60 * 1000);
 let party_started_at: DateTime<Utc> = Utc.with_ymd_and_hms(2023, 1, 1, 14, 0, 0).unwrap();
-let query_statement = surreal_derive_plus::surreal_quote!("CREATE party SET duration = #duration(&party_duration), #date(&party_started_at)");
-assert_eq!(query_statement, "CREATE party SET duration = 2h, '2023-01-01T14:00:00Z'");
+let query_statement = surreal_derive_plus::surreal_quote!("CREATE party SET duration = #val(&party_duration), #val(&party_started_at)");
 ```
 
 #### Surreal ID
 Convert a struct into it's id if it has implement `SurrealId` trait
 ```rust
+impl SurrealId for User {
+    fn id(&self) -> Thing {
+        Thing::from(("user", self.name.as_str()))
+    }
+}
+
 let user =  User {
     name: "clay".to_string(),
     full_name: "clay".to_string(),
@@ -210,15 +195,6 @@ let user =  User {
 };
 
 let query_statement = surreal_derive_plus::surreal_quote!("UPDATE #id(&user) SET age = 10");
-
-assert_eq!(query_statement, "UPDATE user:clay SET age = 10");
-```
-
-#### Value
-```rust
-let str = String::from("string");
-let statement = surreal_derive_plus::surreal_quote!("CREATE user SET full_name = #val(&str)");
-assert_eq!(statement, "CREATE user SET full_name = 'string'");
 ```
 
 # Customize setting
