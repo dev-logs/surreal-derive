@@ -20,8 +20,7 @@ pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream
 
     if let Data::Enum(_) = derive_input.data {
         panic!("#[derive(SurrealDerive)] only works for struct");
-    }
-    else {
+    } else {
         let ast: syn::ItemStruct = syn::parse_macro_input!(usage_input as syn::ItemStruct);
         surreal_derive::surreal_derive_process_struct(ast, attributes)
     }

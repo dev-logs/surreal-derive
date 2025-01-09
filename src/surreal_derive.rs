@@ -6,7 +6,7 @@ use crate::attributes::SurrealDeriveAttribute;
 
 pub fn surreal_derive_process_struct(
     ast: syn::ItemStruct,
-    attributes: SurrealDeriveAttribute,
+    _attributes: SurrealDeriveAttribute,
 ) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let struct_name = &ast.ident;
@@ -20,7 +20,7 @@ pub fn surreal_derive_process_struct(
         };
 
         return quote! {
-            #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name).take())?,
+            #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name).clone())?,
         };
     });
 
@@ -42,6 +42,7 @@ pub fn surreal_derive_process_struct(
             .ident
             .as_ref()
             .expect("Failed to process variable name, the ident could not be empty");
+
         let field_type = &field.ty;
         let db_name: String = match config.use_camel_case {
             true => snake_case_to_camel(field_name.to_string().as_str()),
@@ -67,9 +68,9 @@ pub fn surreal_derive_process_struct(
 
     let from_object = {
         quote::quote! {
-            impl TryFrom<surrealdb::sql::Object> for #struct_name {
+            impl TryFrom<&surrealdb::sql::Object> for #struct_name {
                 type Error = surreal_devl::surreal_qr::SurrealResponseError;
-                fn try_from(mut value_object: surrealdb::sql::Object) -> Result<Self, Self::Error> {
+                fn try_from(mut value_object: &surrealdb::sql::Object) -> Result<Self, Self::Error> {
                     return Ok(Self {
                         #(#from_object_field_converters)*
                     })
@@ -114,12 +115,23 @@ pub fn surreal_derive_process_struct(
 
         impl surreal_devl::proxy::default::SurrealDeserializer for #struct_name {
             fn deserialize(value: &surrealdb::sql::Value) -> Result<Self, surreal_devl::surreal_qr::SurrealResponseError> {
-                match value {
-                    surrealdb::sql::Value::Object(obj) => {
-                        Ok(Self::try_from(obj.clone())?)
-                    },
-                    _ => Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
-                }
+                let object = match &value {
+                    surrealdb::sql::Value::Object(ref value) => value,
+                    surrealdb::sql::Value::Array(ref value) => {
+                        if value.len() != 1 {
+                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnArrayWith1ItemToDeserializeToObject)
+                        }
+                        else if let Some(surrealdb::sql::Value::Object(ref obj)) = value.0.first() {
+                            obj
+                        }
+                        else {
+                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
+                        }
+                    }
+                    _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject),
+                };
+
+                Ok(Self::try_from(object)?)
             }
         }
 

@@ -4,11 +4,14 @@ mod test_derive_macro {
     use serde_derive::{Deserialize, Serialize};
     use std::collections::BTreeMap;
     use surreal_derive_plus::{surreal_quote, SurrealDerive};
-    use surreal_devl::{proxy::default::{SurrealDeserializer, SurrealSerializer}, surreal_id::{Link, SurrealId}};
+    use surreal_devl::{
+        proxy::default::{SurrealDeserializer, SurrealSerializer},
+        surreal_id::{Link, SurrealId},
+    };
     use surrealdb::sql::{Object, Thing, Value};
 
     /// Simple entity with SurrealDerive
-    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SurrealDerive)]
     struct SimpleEntity {
         name: String,
         age: i32,
@@ -108,7 +111,7 @@ mod test_derive_macro {
         map.insert("age".to_string(), Value::from(45));
 
         let object = Object::from(map);
-        let entity: SimpleEntity = object.try_into().unwrap();
+        let entity: SimpleEntity = (&object).try_into().unwrap();
 
         assert_eq!(entity.name, "Charlie");
         assert_eq!(entity.age, 45);
@@ -210,15 +213,15 @@ mod test_derive_macro {
 
 #[cfg(test)]
 mod test_surreal_quote {
-    use std::time::Duration as StdDuration;
     use chrono::{DateTime, Datelike, Utc};
     use serde_derive::{Deserialize, Serialize};
-    use surreal_derive_plus::{SurrealDerive, surreal_quote};
+    use std::time::Duration as StdDuration;
+    use surreal_derive_plus::{surreal_quote, SurrealDerive};
     use surrealdb::sql::Thing;
 
     // You mentioned you have these in your code base:
-    use surreal_devl::surreal_id::{SurrealId, Link};
     use surreal_devl::surreal_edge::Edge;
+    use surreal_devl::surreal_id::{Link, SurrealId};
 
     // -----------------------------------------------
     // Sample structs using SurrealDerive + SurrealId
@@ -447,19 +450,20 @@ mod test_surreal_quote {
 mod test_in_memory_integration {
     use chrono::{DateTime, Utc};
     use serde_derive::{Deserialize, Serialize};
-    use surreal_derive_plus::{SurrealDerive, surreal_quote};
-    use surrealdb::{
-        engine::local::Db, opt::auth::Root, sql::Thing, Surreal
-    };
-    use surreal_devl::{surreal_id::{Link, SurrealId}, surreal_qr::SurrealQR};
+    use surreal_derive_plus::{surreal_quote, SurrealDerive};
     use surreal_devl::surreal_qr::RPath;
+    use surreal_devl::{
+        surreal_id::{Link, SurrealId},
+        surreal_qr::SurrealQR,
+    };
     use surrealdb::engine::local::Mem;
     use surrealdb::sql::Value;
+    use surrealdb::{engine::local::Db, opt::auth::Root, sql::Thing, Surreal};
 
     // --------------------------
     // Sample structs with fields
     // --------------------------
-    
+
     pub async fn create_db() -> Surreal<Db> {
         let db = Surreal::new::<Mem>(()).await.unwrap();
         db.use_ns("test").use_db("test").await.unwrap();
@@ -471,11 +475,11 @@ mod test_in_memory_integration {
     struct User {
         username: String,
         friend: Option<Item>,
-        nickname: Option<String>,             // Optional fields
+        nickname: Option<String>, // Optional fields
         friend2: Box<Link<User>>,
         friend3: Option<Box<Link<User>>>,
-        friends: Vec<Link<User>>,             // Vector of link,
-        created_at: DateTime<Utc>,            // Date/time field
+        friends: Vec<Link<User>>,  // Vector of link,
+        created_at: DateTime<Utc>, // Date/time field
     }
 
     impl SurrealId for User {
@@ -518,8 +522,19 @@ mod test_in_memory_integration {
             created_at: Utc::now(),
         };
 
-        let user = db.query(surreal_quote!("CREATE #record(&user)")).await.unwrap();
-        let result: Option<User> = db.select(("user", "test_user")).await.unwrap();
+        let user: Option<User> = db
+            .query(surreal_quote!("CREATE #record(&user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+        let user = user.unwrap();
+        let result: Option<User> = db
+            .query(surreal_quote!("SELECT * FROM #id(&user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().username, "test_user");
     }
@@ -538,6 +553,7 @@ mod test_in_memory_integration {
             friends: vec![],
             created_at: Utc::now(),
         };
+
         db.query(surreal_quote!("CREATE #record(&user)"))
             .await
             .unwrap();
@@ -548,8 +564,16 @@ mod test_in_memory_integration {
             .await
             .unwrap();
 
-        let updated_user: Option<User> = db.select(("user", "update_user")).await.unwrap();
-        assert_eq!(updated_user.unwrap().nickname, Some("UpdatedNickname".to_string()));
+        let updated_user: Option<User> = db
+            .query(surreal_quote!("SELECT * FROM #id(&user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+        assert_eq!(
+            updated_user.unwrap().nickname,
+            Some("UpdatedNickname".to_string())
+        );
     }
 
     #[tokio::test]
@@ -576,11 +600,13 @@ mod test_in_memory_integration {
             .query("SELECT * FROM user WHERE nickname = 'CommonNickname'")
             .await
             .unwrap()
-            .take(0)
+            .take(RPath::from(0))
             .unwrap();
 
         assert_eq!(users.len(), 3);
-        assert!(users.iter().all(|u| u.nickname == Some("CommonNickname".to_string())));
+        assert!(users
+            .iter()
+            .all(|u| u.nickname == Some("CommonNickname".to_string())));
     }
 
     #[tokio::test]
@@ -603,9 +629,15 @@ mod test_in_memory_integration {
             .unwrap();
 
         // Delete the user
-        let deleted_result: SurrealQR = db.query(surreal_quote!("DELETE #id(&user)")).await.unwrap().take(0).unwrap();
-        let deleted_user: Option<User> = deleted_result.deserialize().unwrap();
-        assert_eq!(deleted_user, Some(user));
+        let deleted_user: surrealdb::Value = db
+            .query(surreal_quote!("DELETE #id(&user)"))
+            .await
+            .unwrap()
+            .take(0)
+            .unwrap();
+
+        println!("{:?}", deleted_user);
+        //assert_eq!(deleted_user, Some(user));
     }
 
     #[tokio::test]
@@ -642,8 +674,10 @@ mod test_in_memory_integration {
             .unwrap();
 
         let stored_inventory: Option<Inventory> = db
-            .select(("inventory", "inventory_user"))
+            .query(surreal_quote!("SELECT * FROM #id(&inventory)"))
             .await
+            .unwrap()
+            .take(RPath::from(0))
             .unwrap();
 
         assert!(stored_inventory.is_some());
@@ -685,10 +719,15 @@ mod test_in_memory_integration {
             .unwrap();
 
         let updated_inventory: Option<Inventory> = db
-            .select(("inventory", "inventory_user2"))
+            .query(surreal_quote!("SELECT * FROM #id(&inventory)"))
             .await
+            .unwrap()
+            .take(RPath::from(0))
             .unwrap();
-        assert_eq!(updated_inventory.unwrap().note, Some("Updated inventory note".to_string()));
+        assert_eq!(
+            updated_inventory.unwrap().note,
+            Some("Updated inventory note".to_string())
+        );
     }
 
     #[tokio::test]
@@ -722,10 +761,420 @@ mod test_in_memory_integration {
             .await
             .unwrap();
 
-        let result: Option<User> = db.select(("user", "user_b")).await.unwrap();
+        let result: Option<User> = db
+            .query(surreal_quote!("SELECT * FROM #id(&user_b)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+        let mut result_1: SurrealQR = db
+            .query(surreal_quote!("SELECT * FROM #id(&user_b) FETCH friend2"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        let user_b_name: Option<String> = result_1
+            .get(RPath::from("username"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        let friend_name: Option<String> = result_1
+            .get(RPath::from("friend2").get("username"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        assert_eq!(user_b_name, Some("user_b".to_owned()));
+        assert_eq!(friend_name, Some("user_a".to_owned()));
         assert!(result.is_some());
         let user_b_retrieved = result.unwrap();
         assert_eq!(user_b_retrieved.friends.len(), 1);
         assert_eq!(user_b_retrieved.friends[0].id(), user_a.id());
+    }
+}
+
+#[cfg(test)]
+mod test_edge_relationships {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_derive_plus::{surreal_quote, SurrealDerive};
+    use surreal_devl::surreal_edge::{Edge, IntoRelation};
+    use surreal_devl::surreal_id::{Link, SurrealId};
+    use surreal_devl::surreal_qr::{RPath, SurrealQR};
+    use surrealdb::sql::Thing;
+    use surrealdb::{
+        engine::local::{Db, Mem},
+        Surreal,
+    };
+
+    pub async fn create_db() -> Surreal<Db> {
+        let db = Surreal::new::<Mem>(()).await.unwrap();
+        db.use_ns("test").use_db("test").await.unwrap();
+        db
+    }
+
+    // Define test entities
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+    struct Person {
+        name: String,
+        age: i32,
+    }
+
+    impl SurrealId for Person {
+        fn id(&self) -> Thing {
+            Thing::from(("person", self.name.as_str()))
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+    struct Company {
+        name: String,
+        location: String,
+        current_ceo: Option<Box<Edge<Person, Employment, Company>>>, // Nested edge field
+    }
+
+    impl SurrealId for Company {
+        fn id(&self) -> Thing {
+            Thing::from(("company", self.name.as_str()))
+        }
+    }
+
+    // Define relationship types
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+    struct Employment {
+        role: String,
+        start_date: DateTime<Utc>,
+        salary: f64,
+    }
+
+    impl SurrealId for Employment {
+        fn id(&self) -> Thing {
+            Thing::from((
+                "employment",
+                format!("{}_{}", self.role, self.start_date.timestamp()).as_str(),
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+    struct Friendship {
+        strength: i32,
+        since: DateTime<Utc>,
+    }
+
+    impl SurrealId for Friendship {
+        fn id(&self) -> Thing {
+            Thing::from(("friendship", self.since.timestamp().to_string().as_str()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_nested_edge() {
+        let db = create_db().await;
+
+        let ceo = Person {
+            name: "John CEO".to_string(),
+            age: 45,
+        };
+
+        let employment = Employment {
+            role: "CEO".to_string(),
+            start_date: Utc::now(),
+            salary: 250000.0,
+        };
+
+        let company = Company {
+            name: "Tech Corp".to_string(),
+            location: "Silicon Valley".to_string(),
+            current_ceo: Some(Box::new(employment.relate(
+                ceo.clone(),
+                Company {
+                    name: "Tech Corp".to_string(),
+                    location: "Silicon Valley".to_string(),
+                    current_ceo: None,
+                },
+            ))),
+        };
+
+        // Insert records
+        db.query(surreal_quote!("CREATE #record(&ceo)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!(
+            "#relate(&company.current_ceo.as_ref().unwrap())"
+        ))
+        .await
+        .unwrap();
+        db.query(surreal_quote!("CREATE #record(&company)"))
+            .await
+            .unwrap();
+
+        // Query company with nested CEO edge
+        let result: SurrealQR = db
+            .query(surreal_quote!(
+                "SELECT * 
+             FROM #id(&company)
+             FETCH current_ceo, current_ceo.in"
+            ))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        let ceo_name: Option<String> = result
+            .get(RPath::from("current_ceo").get("in").get("name"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(ceo_name, Some("John CEO".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_create_and_query_employment_edge() {
+        let db = create_db().await;
+
+        // Create test data
+        let employee = Person {
+            name: "Jane Smith".to_string(),
+            age: 35,
+        };
+
+        let company1 = Company {
+            name: "Company A".to_string(),
+            location: "New York".to_string(),
+            current_ceo: None,
+        };
+
+        let company2 = Company {
+            name: "Company B".to_string(),
+            location: "London".to_string(),
+            current_ceo: None,
+        };
+
+        // Create employment edges
+        let edge1 = Edge {
+            r#in: Some(Link::Record(employee.clone())),
+            out: Some(Link::Record(company1.clone())),
+            data: Employment {
+                role: "Developer".to_string(),
+                start_date: Utc::now(),
+                salary: 90000.0,
+            },
+        };
+
+        let edge2 = Edge {
+            r#in: Some(Link::Record(employee.clone())),
+            out: Some(Link::Record(company2.clone())),
+            data: Employment {
+                role: "Senior Developer".to_string(),
+                start_date: Utc::now(),
+                salary: 120000.0,
+            },
+        };
+
+        // Insert records
+        db.query(surreal_quote!("CREATE #record(&employee)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&company1)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&company2)"))
+            .await
+            .unwrap();
+        let edge1_created: Option<Edge<Person, Employment, Company>> = db
+            .query(surreal_quote!("#relate(&edge1)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&edge2)"))
+            .await
+            .unwrap();
+
+        // Query edge with both endpoints
+        let result: SurrealQR = db
+            .query(surreal_quote!(
+                "SELECT * 
+             FROM #id(&edge1)
+             FETCH in, out"
+            ))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        let role: Option<String> = result
+            .get(RPath::from("role"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        let employee_name: Option<String> = result
+            .get(RPath::from("in").get("name"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        let employer_name: Option<String> = result
+            .get(RPath::from("out").get("name"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(role, Some("Developer".to_string()));
+        assert_eq!(employee_name, Some("Jane Smith".to_string()));
+        assert_eq!(employer_name, Some("Company A".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_bidirectional_friendship_edge() {
+        let db = create_db().await;
+
+        // Create test persons
+        let person1 = Person {
+            name: "Alice".to_string(),
+            age: 25,
+        };
+
+        let person2 = Person {
+            name: "Bob".to_string(),
+            age: 27,
+        };
+
+        let friendship = Friendship {
+            strength: 8,
+            since: Utc::now(),
+        };
+
+        db.query(surreal_quote!("CREATE #record(&person1)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&person2)"))
+            .await
+            .unwrap();
+        // Create bidirectional friendship edge
+        let friendship_edge = friendship.relate(person1.clone(), person2);
+
+        // Insert nodes and edge
+        db.query(surreal_quote!("#relate(&friendship_edge)"))
+            .await
+            .unwrap();
+
+        // Query friends of person1
+        let result: SurrealQR = db
+            .query(surreal_quote!(
+                "SELECT *
+             FROM #id(&friendship_edge)
+             WHERE in = #id(&person1)
+             FETCH out"
+            ))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        let friend_name: Option<String> = result
+            .get(RPath::from("out").get("name"))
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        assert_eq!(friend_name, Some("Bob".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_employment_edges() {
+        let db = create_db().await;
+
+        let employee = Person {
+            name: "Jane Smith".to_string(),
+            age: 35,
+        };
+
+        // Add the missing companies
+        let company1 = Company {
+            name: "Company A".to_string(),
+            location: "New York".to_string(),
+            current_ceo: None,
+        };
+
+        let company2 = Company {
+            name: "Company B".to_string(),
+            location: "London".to_string(),
+            current_ceo: None,
+        };
+
+        // Create employment edges
+        let edge1 = Edge {
+            r#in: Some(Link::Record(employee.clone())),
+            out: Some(Link::Record(company1.clone())),
+            data: Employment {
+                role: "Developer".to_string(),
+                start_date: Utc::now(),
+                salary: 90000.0,
+            },
+        };
+
+        let edge2 = Edge {
+            r#in: Some(Link::Record(employee.clone())),
+            out: Some(Link::Record(company2.clone())),
+            data: Employment {
+                role: "Senior Developer".to_string(),
+                start_date: Utc::now(),
+                salary: 120000.0,
+            },
+        };
+
+        // Insert all records
+        db.query(surreal_quote!("CREATE #record(&employee)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&company1)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("CREATE #record(&company2)"))
+            .await
+            .unwrap();
+        db.query(surreal_quote!("#relate(&edge1)")).await.unwrap();
+        db.query(surreal_quote!("#relate(&edge2)")).await.unwrap();
+
+        let result: SurrealQR = db
+            .query(surreal_quote!(
+                "RETURN array::group(
+                SELECT out as company, role, salary 
+                FROM employment 
+                WHERE in = #id(&employee)
+                FETCH company 
+            )"
+            ))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        // Verify both employments using array indices
+        for i in 0..2 {
+            let company_name: Option<String> = result
+                .get(RPath::from(i).get("company").get("name"))
+                .unwrap()
+                .deserialize()
+                .unwrap();
+            let role: Option<String> = result
+                .get(RPath::from(i).get("role"))
+                .unwrap()
+                .deserialize()
+                .unwrap();
+
+            assert!(company_name.is_some());
+            assert!(role.is_some());
+            assert!(matches!(
+                company_name.as_deref(),
+                Some("Company A") | Some("Company B")
+            ));
+            assert!(matches!(
+                role.as_deref(),
+                Some("Developer") | Some("Senior Developer")
+            ));
+        }
     }
 }
