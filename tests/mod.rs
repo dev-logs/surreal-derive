@@ -10,33 +10,9 @@ mod test_derive_macro {
     };
     use surrealdb::sql::{Object, Thing, Value};
 
-    #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+    #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, SurrealDerive)]
     pub enum UserType {
         Employee
-    }
-
-    impl SurrealDeserializer for UserType {
-        fn deserialize(value: &Value) -> Result<Self, surreal_devl::surreal_qr::SurrealResponseError> {
-            match value {
-                Value::Strand(str) => {
-                    if str.0.eq("employee") {
-                        Ok(UserType::Employee)
-                    }
-                    else {
-                        Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
-                    }
-                }
-                _ => Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
-            }   
-        }
-    }
-
-    impl SurrealSerializer for UserType  {
-        fn serialize(self) -> Value {
-            match self {
-                UserType::Employee => Value::from("employee"),
-            }
-        }
     }
 
     /// Simple entity with SurrealDerive
@@ -141,12 +117,13 @@ mod test_derive_macro {
         let mut map = BTreeMap::new();
         map.insert("name".to_string(), Value::from("Charlie"));
         map.insert("age".to_string(), Value::from(45));
-
+        map.insert("user_type".to_string(), Value::from("employee"));
         let object = Object::from(map);
         let entity: SimpleEntity = (&object).try_into().unwrap();
 
         assert_eq!(entity.name, "Charlie");
         assert_eq!(entity.age, 45);
+        assert_eq!(entity.user_type, UserType::Employee);
     }
 
     #[test]
@@ -1237,7 +1214,7 @@ mod test_enum_serialization {
         ];
 
         for (user_type, expected) in test_cases {
-            let value: Value = SurrealSerializer::serialize(&user_type).unwrap();
+            let value: Value = user_type.serialize();
             assert_eq!(value, Value::from(expected));
         }
     }
@@ -1249,7 +1226,7 @@ mod test_enum_serialization {
             ("employee", Ok(UserType::Employee)),
             ("manager", Ok(UserType::Manager)),
             ("admin", Ok(UserType::Admin)),
-            ("invalid", Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)),
+            ("invalid", Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant)),
         ];
 
         for (input, expected) in test_cases {
@@ -1287,5 +1264,260 @@ mod test_enum_serialization {
             let deserialized = UserType::deserialize(&serialized).unwrap();
             assert_eq!(original, deserialized);
         }
+    }
+}
+
+#[cfg(test)]
+mod test_complex_enum_serialization {
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_devl::proxy::default::{SurrealDeserializer, SurrealSerializer};
+    use surrealdb::sql::{Array, Object, Value};
+    use surreal_derive_plus::SurrealDerive;
+
+    // Nested struct for testing
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    struct Address {
+        street: String,
+        city: String,
+        country: String,
+    }
+
+    // Complex enum with different variant types
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    pub enum ComplexUserType {
+        // Unit variant
+        Guest,
+        // Unnamed tuple variant
+        Basic(String, i32),
+        // Named variant with multiple fields
+        Premium {
+            level: i32,
+            subscription_type: String,
+            address: Address,
+        },
+        // Variant with nested enum
+        Staff(StaffRole),
+    }
+
+    // Nested enum for testing
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    pub enum StaffRole {
+        Junior,
+        Senior { years_experience: i32 },
+        Lead(String), // department
+    }
+
+    // Struct with nested enum
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    struct User {
+        name: String,
+        user_type: ComplexUserType,
+        backup_role: Option<StaffRole>,
+    }
+
+    #[test]
+    fn test_complex_enum_serialization() {
+        let address = Address {
+            street: "123 Main St".to_string(),
+            city: "Tech City".to_string(),
+            country: "Codeland".to_string(),
+        };
+
+        let test_cases = vec![
+            (ComplexUserType::Guest, Value::from("guest")),
+            (
+                ComplexUserType::Basic("john".to_string(), 25),
+                {
+                    let mut obj = Object::default();
+                    let mut arr = Array::default();
+                    arr.push(Value::from("john"));
+                    arr.push(Value::from(25));
+                    obj.insert("basic".into(), Value::Array(arr));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                ComplexUserType::Premium {
+                    level: 3,
+                    subscription_type: "gold".to_string(),
+                    address: address.clone(),
+                },
+                {
+                    let mut obj = Object::default();
+                    let mut premium_obj = Object::default();
+                    premium_obj.insert("level".into(), Value::from(3));
+                    premium_obj.insert("subscription_type".into(), Value::from("gold"));
+                    let mut addr_obj = Object::default();
+                    addr_obj.insert("street".into(), Value::from("123 Main St"));
+                    addr_obj.insert("city".into(), Value::from("Tech City"));
+                    addr_obj.insert("country".into(), Value::from("Codeland"));
+                    premium_obj.insert("address".into(), Value::Object(addr_obj));
+                    obj.insert("premium".into(), Value::Object(premium_obj));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                ComplexUserType::Staff(StaffRole::Junior),
+                {
+                    let mut obj = Object::default();
+                    obj.insert("staff".into(), Value::from(vec![Value::from("junior")]));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                ComplexUserType::Staff(StaffRole::Senior { years_experience: 5 }),
+                {
+                    let mut obj = Object::default();
+                    let mut senior_obj = Object::default();
+                    senior_obj.insert("years_experience".into(), Value::from(5));
+                    let mut staff_obj = Object::default();
+                    staff_obj.insert("senior".into(), Value::Object(senior_obj));
+                    obj.insert("staff".into(), Value::from(vec![Value::Object(staff_obj)]));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                ComplexUserType::Staff(StaffRole::Lead("Engineering".to_string())),
+                {
+                    let mut obj = Object::default();
+                    let mut staff_obj = Object::default();
+                    staff_obj.insert("lead".into(), Value::from(vec![Value::from("Engineering")]));
+                    obj.insert("staff".into(), Value::from(vec![Value::Object(staff_obj)]));
+                    Value::Object(obj)
+                }
+            ),
+        ];
+
+        for (user_type, expected) in test_cases {
+            let value: Value = user_type.serialize();
+            assert_eq!(value, expected);
+        }
+    }
+
+    #[test]
+    fn test_complex_enum_deserialization() {
+        use surrealdb::sql::{Array, Object};
+        
+        let mut address = Object::default();
+        address.insert("street".into(), Value::from("123 Main St"));
+        address.insert("city".into(), Value::from("Tech City"));
+        address.insert("country".into(), Value::from("Codeland"));
+
+        let test_cases = vec![
+            (
+                {
+                    let mut obj = Object::default();
+                    obj.insert("guest".into(), Value::Array(Array::default()));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Guest)
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut arr = Array::default();
+                    arr.push(Value::from("john"));
+                    arr.push(Value::from(25));
+                    obj.insert("basic".into(), Value::Array(arr));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Basic("john".to_string(), 25))
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut premium_obj = Object::default();
+                    premium_obj.insert("level".into(), Value::from(3));
+                    premium_obj.insert("subscription_type".into(), Value::from("gold"));
+                    premium_obj.insert("address".into(), Value::Object(address));
+                    obj.insert("premium".into(), Value::Object(premium_obj));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Premium {
+                    level: 3,
+                    subscription_type: "gold".to_string(),
+                    address: Address {
+                        street: "123 Main St".to_string(),
+                        city: "Tech City".to_string(),
+                        country: "Codeland".to_string(),
+                    },
+                })
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut arr = Array::default();
+                    arr.push(Value::from("junior"));
+                    obj.insert("staff".into(), Value::Array(arr));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Staff(StaffRole::Junior))
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut arr = Array::default();
+                    let mut senior_obj = Object::default();
+                    senior_obj.insert("senior".into(), Value::Object({
+                        let mut obj = Object::default();
+                        obj.insert("years_experience".into(), Value::from(5));
+                        obj
+                    }));
+                    arr.push(Value::Object(senior_obj));
+                    obj.insert("staff".into(), Value::Array(arr));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Staff(StaffRole::Senior { years_experience: 5 }))
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut arr = Array::default();
+                    let mut lead_obj = Object::default();
+                    let mut lead_arr = Array::default();
+                    lead_arr.push(Value::from("Engineering"));
+                    lead_obj.insert("lead".into(), Value::Array(lead_arr));
+                    arr.push(Value::Object(lead_obj));
+                    obj.insert("staff".into(), Value::Array(arr));
+                    Value::Object(obj)
+                },
+                Ok(ComplexUserType::Staff(StaffRole::Lead("Engineering".to_string())))
+            ),
+            (
+                Value::from("invalid"),
+                Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant)
+            ),
+        ];
+
+        for (value, expected) in test_cases {
+            let result = ComplexUserType::deserialize(&value);
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_nested_struct_with_enum() {
+        let user = User {
+            name: "Alice".to_string(),
+            user_type: ComplexUserType::Premium {
+                level: 2,
+                subscription_type: "silver".to_string(),
+                address: Address {
+                    street: "456 Tech Ave".to_string(),
+                    city: "Silicon Valley".to_string(),
+                    country: "USA".to_string(),
+                },
+            },
+            backup_role: Some(StaffRole::Senior { years_experience: 3 }),
+        };
+
+        // Test serialization
+        let serialized = user.clone().serialize();
+        
+        // Test deserialization
+        let deserialized: User = User::deserialize(&serialized).unwrap();
+        
+        // Verify roundtrip
+        assert_eq!(user, deserialized);
     }
 }

@@ -196,6 +196,7 @@ pub fn surreal_derive_process_enum(
                 }
             }
             syn::Fields::Named(fields) => {
+                let field_names: Vec<_> = fields.named.iter().map(|field| field.ident.as_ref().unwrap()).collect();
                 // Handle struct variants (e.g., Custom{r,g,b})
                 let field_serializers = fields.named.iter().map(|field| {
                     let field_name = field.ident.as_ref().unwrap();
@@ -207,13 +208,13 @@ pub fn surreal_derive_process_enum(
                     quote! {
                         inner_map.insert(
                             #db_field_name.to_string(),
-                            <#field_type as surreal_devl::proxy::default::SurrealSerializer>::serialize(data.#field_name.clone())
+                            <#field_type as surreal_devl::proxy::default::SurrealSerializer>::serialize(#field_name.clone())
                         );
                     }
                 });
 
                 quote! {
-                    #enum_name::#variant_name { ref .. data } => {
+                    #enum_name::#variant_name { #(#field_names),* } => {
                         let mut map = std::collections::BTreeMap::new();
                         let mut inner_map = std::collections::BTreeMap::new();
                         #(#field_serializers)*
@@ -245,7 +246,7 @@ pub fn surreal_derive_process_enum(
                     let field_type = &field.ty;
                     quote! {
                         <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(
-                            arr.get(#i).cloned()
+                            arr.get(#i)
                         )?
                     }
                 });
@@ -254,7 +255,7 @@ pub fn surreal_derive_process_enum(
                     #db_name => {
                         if let surrealdb::sql::Value::Array(arr) = variant_value {
                             if arr.len() != #field_count {
-                                return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidArrayLength);
+                                return Err(surreal_devl::surreal_qr::SurrealResponseError::NumberOfFieldOfLengthOfDbValueNotMatchLengthOfEnum);
                             }
                             Ok(#enum_name::#variant_name(
                                 #(#field_deserializers),*
@@ -275,7 +276,7 @@ pub fn surreal_derive_process_enum(
                     };
                     quote! {
                         #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(
-                            inner_obj.get(#db_field_name).cloned()
+                            inner_obj.get(#db_field_name)
                         )?
                     }
                 });
@@ -306,8 +307,13 @@ pub fn surreal_derive_process_enum(
 
         impl surreal_devl::proxy::default::SurrealDeserializer for #enum_name {
             fn deserialize(value: &surrealdb::sql::Value) -> Result<Self, surreal_devl::surreal_qr::SurrealResponseError> {
+                let mut fake_obj = surrealdb::sql::Object::from(std::collections::BTreeMap::<String, surrealdb::sql::Value>::new());
                 let obj = match value {
                     surrealdb::sql::Value::Object(obj) => obj,
+                    surrealdb::sql::Value::Strand(strand) => {
+                        fake_obj.0.insert(strand.0.clone(), surrealdb::sql::Value::from(strand.0.clone()));
+                        &fake_obj
+                    },
                     _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject),
                 };
 
