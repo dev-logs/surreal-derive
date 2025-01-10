@@ -200,10 +200,12 @@ To support custom types, implement both `SurrealSerializer` and `SurrealDeserial
 use chrono::{DateTime, Utc};
 use surrealdb::sql::Value;
 
+// Example: Custom DateTime wrapper
 struct CustomDateTime(DateTime<Utc>);
 
 impl SurrealSerializer for CustomDateTime {
     fn serialize(&self) -> Value {
+        // Convert to SurrealDB datetime value
         Value::from(self.0)
     }
 }
