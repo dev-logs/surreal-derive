@@ -3,6 +3,8 @@
 - Generates query statements
 - Provides easy access to query results via paths
 - Supports serialization to `surrealdb::sql::Value` and deserialization from `surrealdb::sql::Value` instead of using serde
+- Support enum
+- Easy to add custom type
 - Supports IDs and nested structs
 - Supports relations
 
@@ -143,6 +145,98 @@ impl SurrealId for User {
         Thing::from(("user", self.name.as_str()))
     }
 }
+```
+
+### Support enum
+```rust
+#[derive(SurrealDerive)]
+enum UserRole {
+    Admin,
+    User { level: i32 },
+    Moderator(String),
+}
+
+#[derive(SurrealDerive)]
+struct User {
+    name: String,
+    role: UserRole,
+}
+
+// Example usage:
+let admin = User {
+    name: "alice".to_string(),
+    role: UserRole::Admin,
+};
+
+let power_user = User {
+    name: "bob".to_string(),
+    role: UserRole::User { level: 5 },
+};
+
+let mod_user = User {
+    name: "charlie".to_string(),
+    role: UserRole::Moderator("forums".to_string()),
+};
+
+// Serialize to SurrealDB
+let query = surreal_quote!("CREATE #record(&admin)");
+// Will create: CREATE user:alice SET name = 'alice', role = { type: 'Admin' }
+
+let query = surreal_quote!("CREATE #record(&power_user)");
+// Will create: CREATE user:bob SET name = 'bob', role = { user: { level: 5 }
+
+let query = surreal_quote!("CREATE #record(&mod_user)");
+// Will create: CREATE user:charlie SET name = 'charlie', role = { moderator: [ 'forums' ] }
+
+// Deserialize from query results
+let result: User = db.query("SELECT * FROM user WHERE name = 'alice'").await?.take(0)?;
+assert!(matches!(result.role, UserRole::Admin));
+```
+
+### Support custom type
+To support custom types, implement both `SurrealSerializer` and `SurrealDeserializer` traits:
+
+```rust
+use chrono::{DateTime, Utc};
+use surrealdb::sql::Value;
+
+// Example: Custom DateTime wrapper
+struct CustomDateTime(DateTime<Utc>);
+
+impl SurrealSerializer for CustomDateTime {
+    fn serialize(&self) -> Value {
+        // Convert to SurrealDB datetime value
+        Value::from(self.0)
+    }
+}
+
+impl SurrealDeserializer for CustomDateTime {
+    fn deserialize(value: &Value) -> Result<Self, Box<dyn std::error::Error>> {
+        match value {
+            Value::DateTime(dt) => Ok(CustomDateTime(*dt)),
+            _ => Err("Expected DateTime value".into())
+        }
+    }
+}
+
+// Use in structs
+#[derive(SurrealDerive)]
+struct Event {
+    name: String,
+    timestamp: CustomDateTime
+}
+
+// Example usage:
+let event = Event {
+    name: "Meeting".to_string(),
+    timestamp: CustomDateTime(Utc::now())
+};
+
+// Serialize to SurrealDB
+let query = surreal_quote!("CREATE event SET #record(&event)");
+
+// Deserialize from query results
+let result: Event = db.query("SELECT * FROM event").await?.take(0)?;
 ```
 
 ### Variables
