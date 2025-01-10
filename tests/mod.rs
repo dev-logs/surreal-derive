@@ -10,11 +10,41 @@ mod test_derive_macro {
     };
     use surrealdb::sql::{Object, Thing, Value};
 
+    #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+    pub enum UserType {
+        Employee
+    }
+
+    impl SurrealDeserializer for UserType {
+        fn deserialize(value: &Value) -> Result<Self, surreal_devl::surreal_qr::SurrealResponseError> {
+            match value {
+                Value::Strand(str) => {
+                    if str.0.eq("employee") {
+                        Ok(UserType::Employee)
+                    }
+                    else {
+                        Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
+                    }
+                }
+                _ => Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
+            }   
+        }
+    }
+
+    impl SurrealSerializer for UserType  {
+        fn serialize(self) -> Value {
+            match self {
+                UserType::Employee => Value::from("employee"),
+            }
+        }
+    }
+
     /// Simple entity with SurrealDerive
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SurrealDerive)]
     struct SimpleEntity {
         name: String,
         age: i32,
+        user_type: UserType
     }
 
     impl SurrealId for SimpleEntity {
@@ -54,6 +84,7 @@ mod test_derive_macro {
         let entity = SimpleEntity {
             name: "Alice".to_string(),
             age: 30,
+            user_type: UserType::Employee
         };
 
         // Convert to SurrealDB Value
@@ -85,6 +116,7 @@ mod test_derive_macro {
         let simple_entity = SimpleEntity {
             name: "Bob".to_string(),
             age: 28,
+            user_type: UserType::Employee
         };
 
         let entity = ComplexEntity {
@@ -122,6 +154,7 @@ mod test_derive_macro {
         let entity = SimpleEntity {
             name: "Daisy".to_string(),
             age: 22,
+            user_type: UserType::Employee
         };
 
         let obj: Object = entity.into();
@@ -152,6 +185,7 @@ mod test_derive_macro {
         let user = SimpleEntity {
             name: "UserOne".to_string(),
             age: 18,
+            user_type: UserType::Employee
         };
         let statement = surreal_quote!("#(user.name) and #(user.age)");
         assert!(statement.contains("UserOne"));
@@ -177,6 +211,7 @@ mod test_derive_macro {
         let child = SimpleEntity {
             name: "NestedChild".to_string(),
             age: 10,
+            user_type: UserType::Employee
         };
 
         let complex = ComplexEntity {
@@ -795,7 +830,6 @@ mod test_in_memory_integration {
 
 #[cfg(test)]
 mod test_edge_relationships {
-    use super::*;
     use chrono::{DateTime, Utc};
     use serde_derive::{Deserialize, Serialize};
     use surreal_derive_plus::{surreal_quote, SurrealDerive};
@@ -1175,6 +1209,83 @@ mod test_edge_relationships {
                 role.as_deref(),
                 Some("Developer") | Some("Senior Developer")
             ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_enum_serialization {
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_devl::proxy::default::{SurrealDeserializer, SurrealSerializer};
+    use surrealdb::sql::Value;
+    use surreal_derive_plus::SurrealDerive;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    pub enum UserType {
+        Employee,
+        Manager,
+        Admin,
+    }
+
+    #[test]
+    fn test_enum_serialization() {
+        // Test serialization for all variants
+        let test_cases = vec![
+            (UserType::Employee, "employee"),
+            (UserType::Manager, "manager"),
+            (UserType::Admin, "admin"),
+        ];
+
+        for (user_type, expected) in test_cases {
+            let value: Value = SurrealSerializer::serialize(&user_type).unwrap();
+            assert_eq!(value, Value::from(expected));
+        }
+    }
+
+    #[test]
+    fn test_enum_deserialization() {
+        // Test successful deserialization
+        let test_cases = vec![
+            ("employee", Ok(UserType::Employee)),
+            ("manager", Ok(UserType::Manager)),
+            ("admin", Ok(UserType::Admin)),
+            ("invalid", Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)),
+        ];
+
+        for (input, expected) in test_cases {
+            let value = Value::from(input);
+            let result = UserType::deserialize(&value);
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_enum_deserialization_wrong_type() {
+        // Test deserialization with wrong value types
+        let wrong_types = vec![
+            Value::from(42),
+            Value::from(true),
+            Value::from(3.14),
+        ];
+
+        for value in wrong_types {
+            assert!(UserType::deserialize(&value).is_err());
+        }
+    }
+
+    #[test]
+    fn test_enum_roundtrip() {
+        // Test serialization followed by deserialization
+        let original_values = vec![
+            UserType::Employee,
+            UserType::Manager,
+            UserType::Admin,
+        ];
+
+        for original in original_values {
+            let serialized = original.clone().serialize();
+            let deserialized = UserType::deserialize(&serialized).unwrap();
+            assert_eq!(original, deserialized);
         }
     }
 }
