@@ -180,7 +180,7 @@ let mod_user = User {
 
 // Serialize to SurrealDB
 let query = surreal_quote!("CREATE #record(&admin)");
-// Will create: CREATE user:alice SET name = 'alice', role = { type: 'Admin' }
+// Will create: CREATE user:alice SET name = 'alice', role = 'Admin'
 
 let query = surreal_quote!("CREATE #record(&power_user)");
 // Will create: CREATE user:bob SET name = 'bob', role = { user: { level: 5 }
@@ -200,12 +200,10 @@ To support custom types, implement both `SurrealSerializer` and `SurrealDeserial
 use chrono::{DateTime, Utc};
 use surrealdb::sql::Value;
 
-// Example: Custom DateTime wrapper
 struct CustomDateTime(DateTime<Utc>);
 
 impl SurrealSerializer for CustomDateTime {
     fn serialize(&self) -> Value {
-        // Convert to SurrealDB datetime value
         Value::from(self.0)
     }
 }
