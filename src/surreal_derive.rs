@@ -37,35 +37,6 @@ pub fn surreal_derive_process_struct(
         };
     });
 
-    let field_converters = ast.fields.iter().map(|field| {
-        let field_name = field
-            .ident
-            .as_ref()
-            .expect("Failed to process variable name, the ident could not be empty");
-
-        let field_type = &field.ty;
-        let db_name: String = match config.use_camel_case {
-            true => snake_case_to_camel(field_name.to_string().as_str()),
-            false => camel_to_snake_case(field_name.to_string().as_str()),
-        };
-
-        quote::quote! {
-            vec.push((
-                surrealdb::sql::Idiom::from(#db_name.to_owned()), // field name
-                <#field_type as surreal_devl::proxy::default::SurrealSerializer>::serialize(self.#field_name.clone())
-            ));
-        }
-    });
-
-    let into_idiom_value_fn = quote::quote! {
-        fn into_idiom_value(&self) -> Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> {
-           let mut vec: std::vec::Vec<(surrealdb::sql::Idiom, surrealdb::sql::Value)> = std::vec::Vec::new();
-           #(#field_converters)*
-
-           return vec;
-        }
-    };
-
     let from_object = {
         quote::quote! {
             impl TryFrom<&surrealdb::sql::Object> for #struct_name {
@@ -88,22 +59,6 @@ pub fn surreal_derive_process_struct(
 
                     return Self::from(map)
                 }
-            }
-        }
-    };
-
-    let impl_surreal_serialize = {
-        quote::quote! {
-            impl surreal_devl::serialize::SurrealSerialize for #struct_name {
-                #into_idiom_value_fn
-            }
-        }
-    };
-
-    let impl_surreal_serialize_ref = {
-        quote::quote! {
-            impl surreal_devl::serialize::SurrealSerialize for &#struct_name {
-                #into_idiom_value_fn
             }
         }
     };
@@ -141,10 +96,6 @@ pub fn surreal_derive_process_struct(
                 surrealdb::sql::Value::Object(obj)
             }
         }
-
-        #impl_surreal_serialize
-
-        #impl_surreal_serialize_ref
     };
 
     gen.into()
@@ -152,28 +103,40 @@ pub fn surreal_derive_process_struct(
 
 pub fn surreal_derive_process_enum(
     ast: syn::ItemEnum,
-    _attributes: SurrealDeriveAttribute,
+    attributes: SurrealDeriveAttribute,
 ) -> proc_macro::TokenStream {
     let config = SurrealDeriveConfig::get();
     let enum_name = &ast.ident;
 
+    // Determine tag field name based on attributes
+    let tag_field = attributes.tag.unwrap_or_else(|| "".to_string());
+    if !tag_field.is_empty() && tag_field.ne("type") {
+        panic!("Invalid tag field name, only \"type\" is allowed");
+    }
+
+    let use_type_value_format = tag_field == "type";
+
     // Generate match arms for serialization
     let serialize_match_arms = ast.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        let db_name = match config.use_camel_case {
-            true => snake_case_to_camel(variant_name.to_string().as_str()),
-            false => camel_to_snake_case(variant_name.to_string().as_str()),
+        let db_name = if use_type_value_format {
+            variant_name.to_string()
+        } else {
+            match config.use_camel_case {
+                true => snake_case_to_camel(variant_name.to_string().as_str()),
+                false => camel_to_snake_case(variant_name.to_string().as_str()),
+            }
         };
 
         match &variant.fields {
             syn::Fields::Unit => {
-                // Handle unit variants (e.g., White)
+                let db_name = variant_name.to_string();
                 quote! {
                     #enum_name::#variant_name => {
                         surrealdb::sql::Value::from(#db_name.to_string())
                     }
                 }
-            }
+            },
             syn::Fields::Unnamed(fields) => {
                 let field_count = fields.unnamed.len();
                 let field_names: Vec<_> = (0..field_count).map(|i| format_ident!("_{}", i)).collect();
@@ -184,14 +147,28 @@ pub fn surreal_derive_process_enum(
                     }
                 });
 
-                quote! {
-                    #enum_name::#variant_name(#(ref #field_names),*) => {
-                        let mut map = std::collections::BTreeMap::new();
-                        let values = vec![
-                            #(#field_serializers(#field_names.clone())),*
-                        ];
-                        map.insert(#db_name.to_string(), surrealdb::sql::Value::Array(values.into()));
-                        surrealdb::sql::Value::Object(map.into())
+                if use_type_value_format {
+                    quote! {
+                        #enum_name::#variant_name(#(ref #field_names),*) => {
+                            let mut map = std::collections::BTreeMap::new();
+                            let values = vec![
+                                #(#field_serializers(#field_names.clone())),*
+                            ];
+                            map.insert("type".to_string(), surrealdb::sql::Value::from(#db_name.to_string()));
+                            map.insert("value".to_string(), surrealdb::sql::Value::Array(values.into()));
+                            surrealdb::sql::Value::Object(map.into())
+                        }
+                    }
+                } else {
+                    quote! {
+                        #enum_name::#variant_name(#(ref #field_names),*) => {
+                            let mut map = std::collections::BTreeMap::new();
+                            let values = vec![
+                                #(#field_serializers(#field_names.clone())),*
+                            ];
+                            map.insert(#db_name.to_string(), surrealdb::sql::Value::Array(values.into()));
+                            surrealdb::sql::Value::Object(map.into())
+                        }
                     }
                 }
             }
@@ -213,13 +190,26 @@ pub fn surreal_derive_process_enum(
                     }
                 });
 
-                quote! {
-                    #enum_name::#variant_name { #(#field_names),* } => {
-                        let mut map = std::collections::BTreeMap::new();
-                        let mut inner_map = std::collections::BTreeMap::new();
-                        #(#field_serializers)*
-                        map.insert(#db_name.to_string(), surrealdb::sql::Value::Object(inner_map.into()));
-                        surrealdb::sql::Value::Object(map.into())
+                if use_type_value_format {
+                    quote! {
+                        #enum_name::#variant_name { #(#field_names),* } => {
+                            let mut map = std::collections::BTreeMap::new();
+                            let mut inner_map = std::collections::BTreeMap::new();
+                            #(#field_serializers)*
+                            map.insert("type".to_string(), surrealdb::sql::Value::from(#db_name.to_string()));
+                            map.insert("value".to_string(), surrealdb::sql::Value::Object(inner_map.into()));
+                            surrealdb::sql::Value::Object(map.into())
+                        }
+                    }
+                } else {
+                    quote! {
+                        #enum_name::#variant_name { #(#field_names),* } => {
+                            let mut map = std::collections::BTreeMap::new();
+                            let mut inner_map = std::collections::BTreeMap::new();
+                            #(#field_serializers)*
+                            map.insert(#db_name.to_string(), surrealdb::sql::Value::Object(inner_map.into()));
+                            surrealdb::sql::Value::Object(map.into())
+                        }
                     }
                 }
             }
@@ -229,13 +219,18 @@ pub fn surreal_derive_process_enum(
     // Generate match arms for deserialization
     let deserialize_match_arms = ast.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        let db_name = match config.use_camel_case {
-            true => snake_case_to_camel(variant_name.to_string().as_str()),
-            false => camel_to_snake_case(variant_name.to_string().as_str()),
+        let db_name = if use_type_value_format {
+            variant_name.to_string()
+        } else {
+            match config.use_camel_case {
+                false => camel_to_snake_case(variant_name.to_string().as_str()),
+                true => snake_case_to_camel(variant_name.to_string().as_str()),
+            }
         };
 
         match &variant.fields {
             syn::Fields::Unit => {
+                let db_name = variant_name.to_string();
                 quote! {
                     #db_name => Ok(#enum_name::#variant_name),
                 }
@@ -311,19 +306,36 @@ pub fn surreal_derive_process_enum(
                 let obj = match value {
                     surrealdb::sql::Value::Object(obj) => obj,
                     surrealdb::sql::Value::Strand(strand) => {
-                        fake_obj.0.insert(strand.0.clone(), surrealdb::sql::Value::from(strand.0.clone()));
+                        if #use_type_value_format {
+                            fake_obj.0.insert("type".to_string(), surrealdb::sql::Value::from(strand.0.clone()));
+                            fake_obj.0.insert("value".to_string(), surrealdb::sql::Value::from(strand.0.clone()));
+                        } else {
+                            fake_obj.0.insert(strand.0.clone(), surrealdb::sql::Value::from(strand.0.clone()));
+                        }
                         &fake_obj
                     },
                     _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject),
                 };
 
-                if obj.len() != 1 {
-                    return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat);
-                }
+                let (variant_name, variant_value) = if #use_type_value_format {
+                    let type_value = obj.get("type")
+                        .ok_or(surreal_devl::surreal_qr::SurrealResponseError::TypeEnumMustBeString)?;
+                    let variant_value = obj.get("value")
+                        .unwrap_or(type_value);
+                    
+                    match type_value {
+                        surrealdb::sql::Value::Strand(s) => (s.0.as_str(), variant_value),
+                        _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat),
+                    }
+                } else {
+                    if obj.len() != 1 {
+                        return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat);
+                    }
+                    let (name, value) = obj.iter().next().unwrap();
+                    (name.as_str(), value)
+                };
 
-                let (variant_name, variant_value) = obj.iter().next().unwrap();
-                
-                match variant_name.as_str() {
+                match variant_name {
                     #(#deserialize_match_arms)*
                     _ => Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant),
                 }

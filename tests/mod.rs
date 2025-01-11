@@ -117,7 +117,7 @@ mod test_derive_macro {
         let mut map = BTreeMap::new();
         map.insert("name".to_string(), Value::from("Charlie"));
         map.insert("age".to_string(), Value::from(45));
-        map.insert("user_type".to_string(), Value::from("employee"));
+        map.insert("user_type".to_string(), Value::from("Employee"));
         let object = Object::from(map);
         let entity: SimpleEntity = (&object).try_into().unwrap();
 
@@ -302,11 +302,9 @@ mod test_surreal_quote {
             users: vec![Link::Record(alex), Link::Record(john)],
         };
 
-        // Surreal statement might be something like:
-        // "CREATE service:serviceA SET id = 'serviceA', users = [user:Alex, user:John]"
         let statement = surreal_quote!("CREATE #record(&service)");
         assert_eq!(
-            "CREATE service:serviceA SET id = 'serviceA', users = [user:Alex, user:John]",
+            "CREATE service:serviceA CONTENT { id: 'serviceA', users: [user:Alex, user:John] }",
             statement
         );
     }
@@ -320,22 +318,9 @@ mod test_surreal_quote {
             id: "serviceB".to_string(),
             users: vec![],
         };
-        // #id(&service) might produce "service:serviceB"
+
         let statement = surreal_quote!("SELECT #id(&service)");
         assert_eq!("SELECT service:serviceB", statement);
-    }
-
-    // -----------------------------------------------------------
-    // 3) Test #set(...) usage
-    // -----------------------------------------------------------
-    #[test]
-    fn test_set_statement() {
-        let user = User {
-            name: "Alice".to_owned(),
-        };
-        // #set(&user) might produce "SET name = 'Alice'"
-        let statement = surreal_quote!("UPDATE user:Alice #set(&user)");
-        assert_eq!("UPDATE user:Alice SET name = 'Alice'", statement);
     }
 
     // -----------------------------------------------------------
@@ -347,8 +332,8 @@ mod test_surreal_quote {
             name: "Bob".to_owned(),
         };
 
-        let statement = surreal_quote!("CREATE user SET #content(&user)");
-        assert_eq!("CREATE user SET name='Bob'", statement);
+        let statement = surreal_quote!("CREATE user #content(&user)");
+        assert_eq!("CREATE user CONTENT { name: 'Bob' }", statement);
     }
 
     // -----------------------------------------------------------
@@ -415,7 +400,7 @@ mod test_surreal_quote {
         // "RELATE user:Adam -> relationship:friendship -> user:Betty SET kind = 'friendship'"
         let statement = surreal_quote!("#relate(&edge)");
         assert_eq!(
-            "RELATE user:Adam -> relationship:friendship -> user:Betty SET kind = 'friendship'",
+            "RELATE user:Adam -> relationship:friendship -> user:Betty CONTENT { kind: 'friendship' }",
             statement
         );
     }
@@ -572,7 +557,7 @@ mod test_in_memory_integration {
 
         // Update nickname
         user.nickname = Some("UpdatedNickname".to_string());
-        db.query(surreal_quote!("UPDATE #id(&user) #set(&user)"))
+        db.query(surreal_quote!("UPDATE #id(&user) #content(&user)"))
             .await
             .unwrap();
 
@@ -726,7 +711,7 @@ mod test_in_memory_integration {
 
         // Update note
         inventory.note = Some("Updated inventory note".to_string());
-        db.query(surreal_quote!("UPDATE #id(&inventory) #set(&inventory)"))
+        db.query(surreal_quote!("UPDATE #id(&inventory) #content(&inventory)"))
             .await
             .unwrap();
 
@@ -1208,9 +1193,9 @@ mod test_enum_serialization {
     fn test_enum_serialization() {
         // Test serialization for all variants
         let test_cases = vec![
-            (UserType::Employee, "employee"),
-            (UserType::Manager, "manager"),
-            (UserType::Admin, "admin"),
+            (UserType::Employee, "Employee"),
+            (UserType::Manager, "Manager"),
+            (UserType::Admin, "Admin"),
         ];
 
         for (user_type, expected) in test_cases {
@@ -1223,9 +1208,9 @@ mod test_enum_serialization {
     fn test_enum_deserialization() {
         // Test successful deserialization
         let test_cases = vec![
-            ("employee", Ok(UserType::Employee)),
-            ("manager", Ok(UserType::Manager)),
-            ("admin", Ok(UserType::Admin)),
+            ("Employee", Ok(UserType::Employee)),
+            ("Manager", Ok(UserType::Manager)),
+            ("Admin", Ok(UserType::Admin)),
             ("invalid", Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant)),
         ];
 
@@ -1324,7 +1309,7 @@ mod test_complex_enum_serialization {
         };
 
         let test_cases = vec![
-            (ComplexUserType::Guest, Value::from("guest")),
+            (ComplexUserType::Guest, Value::from("Guest")),
             (
                 ComplexUserType::Basic("john".to_string(), 25),
                 {
@@ -1360,7 +1345,7 @@ mod test_complex_enum_serialization {
                 ComplexUserType::Staff(StaffRole::Junior),
                 {
                     let mut obj = Object::default();
-                    obj.insert("staff".into(), Value::from(vec![Value::from("junior")]));
+                    obj.insert("staff".into(), Value::from(vec![Value::from("Junior")]));
                     Value::Object(obj)
                 }
             ),
@@ -1406,9 +1391,7 @@ mod test_complex_enum_serialization {
         let test_cases = vec![
             (
                 {
-                    let mut obj = Object::default();
-                    obj.insert("guest".into(), Value::Array(Array::default()));
-                    Value::Object(obj)
+                    Value::from("Guest")
                 },
                 Ok(ComplexUserType::Guest)
             ),
@@ -1447,7 +1430,7 @@ mod test_complex_enum_serialization {
                 {
                     let mut obj = Object::default();
                     let mut arr = Array::default();
-                    arr.push(Value::from("junior"));
+                    arr.push(Value::from("Junior"));
                     obj.insert("staff".into(), Value::Array(arr));
                     Value::Object(obj)
                 },
@@ -1519,5 +1502,519 @@ mod test_complex_enum_serialization {
         
         // Verify roundtrip
         assert_eq!(user, deserialized);
+    }
+}
+
+#[cfg(test)]
+mod test_tagged_enum_serialization {
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_devl::proxy::default::{SurrealDeserializer, SurrealSerializer};
+    use surrealdb::sql::{Object, Value};
+    use surreal_derive_plus::SurrealDerive;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    #[surreal_derive(tag = "type")]
+    pub enum TaggedUserType {
+        Employee,
+        Manager { department: String },
+        Admin { level: i32, permissions: Vec<String> }
+    }
+
+    #[test]
+    fn test_tagged_enum_serialization() {
+        let test_cases = vec![
+            (
+                TaggedUserType::Employee,
+                {
+                    Value::from("Employee")
+                }
+            ),
+            (
+                TaggedUserType::Manager { 
+                    department: "Engineering".to_string() 
+                },
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();      
+                    value_obj.insert("department".into(), Value::from("Engineering"));
+                    obj.insert("type".into(), Value::from("Manager"));
+                    obj.insert("value".into(), Value::from(value_obj));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                TaggedUserType::Admin { 
+                    level: 3, 
+                    permissions: vec!["read".to_string(), "write".to_string()] 
+                },
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();
+                    value_obj.insert("level".into(), Value::from(3));
+                    value_obj.insert("permissions".into(), Value::from(vec!["read", "write"]));
+                    obj.insert("type".into(), Value::from("Admin"));
+                    obj.insert("value".into(), Value::Object(value_obj));
+                    Value::Object(obj)
+                }
+            ),
+        ];
+
+        for (user_type, expected) in test_cases {
+            let value: Value = user_type.serialize();
+            assert_eq!(value, expected);
+        }
+    }
+
+    #[test]
+    fn test_tagged_enum_deserialization() {
+        use surrealdb::sql::Object;
+
+        let test_cases = vec![
+            (
+                {
+                    Value::from("Employee")
+                },
+                Ok(TaggedUserType::Employee)
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();
+                    obj.insert("type".into(), Value::from("Manager"));
+                    value_obj.insert("department".into(), Value::from("Engineering"));
+                    obj.insert("value".into(), Value::from(value_obj));
+                    Value::Object(obj)
+                },
+                Ok(TaggedUserType::Manager { 
+                    department: "Engineering".to_string() 
+                })
+            ),
+            (
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();
+                    obj.insert("type".into(), Value::from("Admin"));
+                    value_obj.insert("level".into(), Value::from(3));
+                    value_obj.insert("permissions".into(), Value::from(vec!["read", "write"]));
+                    obj.insert("value".into(), Value::from(value_obj));
+                    Value::Object(obj)
+                },
+                Ok(TaggedUserType::Admin { 
+                    level: 3, 
+                    permissions: vec!["read".to_string(), "write".to_string()] 
+                })
+            ),
+            (
+                Value::from("invalid"),
+                Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant)
+            ),
+        ];
+
+        for (value, expected) in test_cases {
+            let result = TaggedUserType::deserialize(&value);
+            assert_eq!(result, expected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_complex_tagged_enum_serialization {
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_devl::proxy::default::{SurrealDeserializer, SurrealSerializer};
+    use surrealdb::sql::{Array, Object, Value};
+    use surreal_derive_plus::SurrealDerive;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    struct Metadata {
+        created_at: String,
+        updated_at: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    #[surreal_derive(tag = "type")]
+    pub enum ComplexTaggedType {
+        Basic {
+            id: String,
+            metadata: Metadata
+        },
+        Advanced {
+            id: String,
+            metadata: Metadata,
+            features: Vec<String>,
+            config: Config
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    struct Config {
+        enabled: bool,
+        settings: Vec<Setting>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    #[surreal_derive(tag = "type")]
+    enum Setting {
+        Boolean { key: String, value: bool },
+        Number { key: String, value: f64 },
+        Text { key: String, value: String }
+    }
+
+    #[test]
+    fn test_complex_tagged_serialization() {
+        let metadata = Metadata {
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-02".to_string(),
+        };
+
+        let config = Config {
+            enabled: true,
+            settings: vec![
+                Setting::Boolean { 
+                    key: "debug".to_string(), 
+                    value: true 
+                },
+                Setting::Number { 
+                    key: "timeout".to_string(), 
+                    value: 30.0 
+                },
+                Setting::Text { 
+                    key: "mode".to_string(), 
+                    value: "production".to_string() 
+                }
+            ],
+        };
+
+        let test_cases = vec![
+            (
+                ComplexTaggedType::Basic { 
+                    id: "basic-1".to_string(),
+                    metadata: metadata.clone()
+                },
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();
+                    obj.insert("type".into(), Value::from("Basic"));
+                    value_obj.insert("id".into(), Value::from("basic-1"));
+                    let mut meta_obj = Object::default();
+                    meta_obj.insert("created_at".into(), Value::from("2024-01-01"));
+                    meta_obj.insert("updated_at".into(), Value::from("2024-01-02"));
+                    value_obj.insert("metadata".into(), Value::Object(meta_obj));
+                    obj.insert("value".into(), Value::Object(value_obj));
+                    Value::Object(obj)
+                }
+            ),
+            (
+                ComplexTaggedType::Advanced { 
+                    id: "adv-1".to_string(),
+                    metadata: metadata.clone(),
+                    features: vec!["feature1".to_string(), "feature2".to_string()],
+                    config: config.clone()
+                },
+                {
+                    let mut obj = Object::default();
+                    let mut value_obj = Object::default();
+                    obj.insert("type".into(), Value::from("Advanced"));
+                    value_obj.insert("id".into(), Value::from("adv-1"));
+                    let mut meta_obj = Object::default();
+                    meta_obj.insert("created_at".into(), Value::from("2024-01-01"));
+                    meta_obj.insert("updated_at".into(), Value::from("2024-01-02"));
+                    value_obj.insert("metadata".into(), Value::Object(meta_obj));
+                    value_obj.insert("features".into(), Value::from(vec!["feature1", "feature2"]));
+                    
+                    let mut config_obj = Object::default();
+                    config_obj.insert("enabled".into(), Value::from(true));
+                    let settings = vec![
+                        {
+                            let mut setting = Object::default();
+                            let mut value_obj = Object::default();
+                            setting.insert("type".into(), Value::from("Boolean"));
+                            value_obj.insert("key".into(), Value::from("debug"));
+                            value_obj.insert("value".into(), Value::from(true));
+                            setting.insert("value".into(), Value::Object(value_obj));
+                            Value::Object(setting)
+                        },
+                        {
+                            let mut setting = Object::default();
+                            let mut value_obj = Object::default();
+                            setting.insert("type".into(), Value::from("Number"));
+                            value_obj.insert("key".into(), Value::from("timeout"));
+                            value_obj.insert("value".into(), Value::from(30.0));
+                            setting.insert("value".into(), Value::Object(value_obj));
+                            Value::Object(setting)
+                        },
+                        {
+                            let mut setting = Object::default();
+                            let mut value_obj = Object::default();
+                            setting.insert("type".into(), Value::from("Text"));
+                            value_obj.insert("key".into(), Value::from("mode"));
+                            value_obj.insert("value".into(), Value::from("production"));
+                            setting.insert("value".into(), Value::Object(value_obj));
+                            Value::Object(setting)
+                        }
+                    ];
+                    config_obj.insert("settings".into(), Value::from(settings));
+                    value_obj.insert("config".into(), Value::Object(config_obj));
+                    obj.insert("value".into(), Value::Object(value_obj));
+                    Value::Object(obj)
+                }
+            ),
+        ];
+
+        for (complex_type, expected) in test_cases {
+            let value: Value = complex_type.serialize();
+            assert_eq!(value, expected);
+        }
+    }
+
+    #[test]
+    fn test_complex_tagged_roundtrip() {
+        let metadata = Metadata {
+            created_at: "2024-01-01".to_string(),
+            updated_at: "2024-01-02".to_string(),
+        };
+
+        let config = Config {
+            enabled: true,
+            settings: vec![
+                Setting::Boolean { 
+                    key: "debug".to_string(), 
+                    value: true 
+                },
+                Setting::Number { 
+                    key: "timeout".to_string(), 
+                    value: 30.0 
+                },
+                Setting::Text { 
+                    key: "mode".to_string(), 
+                    value: "production".to_string() 
+                }
+            ],
+        };
+
+        let test_cases = vec![
+            ComplexTaggedType::Basic { 
+                id: "basic-1".to_string(),
+                metadata: metadata.clone()
+            },
+            ComplexTaggedType::Advanced { 
+                id: "adv-1".to_string(),
+                metadata: metadata.clone(),
+                features: vec!["feature1".to_string(), "feature2".to_string()],
+                config: config.clone()
+            },
+        ];
+
+        for original in test_cases {
+            let serialized = original.clone().serialize();
+            let deserialized: ComplexTaggedType = ComplexTaggedType::deserialize(&serialized).unwrap();
+            assert_eq!(original, deserialized);
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_enum_db_operations {
+    use chrono::Utc;
+    use serde_derive::{Deserialize, Serialize};
+    use surreal_derive_plus::{surreal_quote, SurrealDerive};
+    use surreal_devl::{surreal_id::SurrealId, surreal_qr::RPath};
+    use surrealdb::{engine::local::{Db, Mem}, sql::Thing, Surreal};
+
+    // ... existing imports and setup ...
+
+    async fn create_db() -> Surreal<Db> {
+        let db = Surreal::new::<Mem>(()).await.unwrap();
+        db.use_ns("test").use_db("test").await.unwrap();
+        db
+    }
+
+    // Simple enum
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    pub enum UserRole {
+        Basic,
+        Premium,
+        Admin
+    }
+
+    // Complex enum with fields
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    pub enum Subscription {
+        Free,
+        Paid { level: i32, price: f64 },
+        Enterprise { company: String, seats: i32 }
+    }
+
+    // Tagged enum
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    #[surreal_derive(tag = "type")]
+    pub enum NotificationType {
+        Email { address: String },
+        SMS { phone: String },
+        Push { device_id: String, token: String }
+    }
+
+    // Entity containing enums
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
+    struct User {
+        username: String,
+        role: UserRole,
+        subscription: Subscription,
+        notification_preferences: NotificationType
+    }
+
+    impl SurrealId for User {
+        fn id(&self) -> Thing {
+            Thing::from(("user", self.username.as_str()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_simple_enum_crud() {
+        let db = create_db().await;
+
+        let user = User {
+            username: "test_user".to_string(),
+            role: UserRole::Premium,
+            subscription: Subscription::Free,
+            notification_preferences: NotificationType::Email {
+                address: "test@example.com".to_string()
+            }
+        };
+
+        // Create
+        let created: Option<User> = db
+            .query(surreal_quote!("CREATE #record(&user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert!(created.is_some());
+        assert_eq!(created.unwrap().role, UserRole::Premium);
+
+        // Read
+        let read: Option<User> = db
+            .query(surreal_quote!("SELECT * FROM #id(&user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert!(read.is_some());
+        let read_user = read.unwrap();
+        assert_eq!(read_user.role, UserRole::Premium);
+        assert_eq!(read_user.subscription, Subscription::Free);
+
+        // Update with complex enum
+        let mut updated_user = user.clone();
+        updated_user.subscription = Subscription::Paid { 
+            level: 2, 
+            price: 19.99 
+        };
+
+        let updated: Option<User> = db
+            .query(surreal_quote!("UPDATE #id(&user) #content(&updated_user)"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert!(updated.is_some());
+        assert_eq!(
+            updated.unwrap().subscription,
+            Subscription::Paid { level: 2, price: 19.99 }
+        );
+
+        // Delete
+        let deleted: Option<User> = db
+            .query(surreal_quote!("DELETE #id(&user) RETURN before"))
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert!(deleted.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_complex_enum_queries() {
+        let db = create_db().await;
+
+        // Create multiple users with different enum variants
+        let users = vec![
+            User {
+                username: "free_user".to_string(),
+                role: UserRole::Basic,
+                subscription: Subscription::Free,
+                notification_preferences: NotificationType::Email {
+                    address: "free@example.com".to_string()
+                }
+            },
+            User {
+                username: "paid_user".to_string(),
+                role: UserRole::Premium,
+                subscription: Subscription::Paid {
+                    level: 1,
+                    price: 9.99
+                },
+                notification_preferences: NotificationType::SMS {
+                    phone: "+1234567890".to_string()
+                }
+            },
+            User {
+                username: "enterprise_user".to_string(),
+                role: UserRole::Admin,
+                subscription: Subscription::Enterprise {
+                    company: "Tech Corp".to_string(),
+                    seats: 50
+                },
+                notification_preferences: NotificationType::Push {
+                    device_id: "device123".to_string(),
+                    token: "token123".to_string()
+                }
+            }
+        ];
+
+        // Insert all users
+        for user in &users {
+            let statement = surreal_quote!("CREATE #record(user)");
+            println!("{}", statement);
+            db.query(statement)
+                .await
+                .unwrap();
+        }
+
+        // Query by role
+        let premium_users: Vec<User> = db
+            .query("SELECT * FROM user WHERE role = 'Premium'")
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert_eq!(premium_users.len(), 1);
+        assert_eq!(premium_users[0].username, "paid_user");
+
+        // Query by subscription type
+        let enterprise_users: Vec<User> = db
+            .query("SELECT * FROM user WHERE subscription.enterprise != none")
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert_eq!(enterprise_users.len(), 1);
+        assert_eq!(enterprise_users[0].username, "enterprise_user");
+
+        // Query by notification type
+        let email_users: Vec<User> = db
+            .query("SELECT * FROM user WHERE notification_preferences.type = 'Email'")
+            .await
+            .unwrap()
+            .take(RPath::from(0))
+            .unwrap();
+
+        assert_eq!(email_users.len(), 1);
+        assert_eq!(email_users[0].username, "free_user");
     }
 }

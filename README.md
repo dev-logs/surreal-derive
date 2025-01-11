@@ -148,6 +148,8 @@ impl SurrealId for User {
 ```
 
 ### Support enum
+
+#### Basic enum serialization
 ```rust
 #[derive(SurrealDerive)]
 enum UserRole {
@@ -156,41 +158,61 @@ enum UserRole {
     Moderator(String),
 }
 
+// Serialization format:
+// Admin -> "Admin"
+// User { level: 5 } -> { "user": { "level": 5 } }
+// Moderator("forums") -> { "moderator": "forums" }
+
+// Example usage with struct
 #[derive(SurrealDerive)]
 struct User {
     name: String,
     role: UserRole,
 }
 
-// Example usage:
 let admin = User {
     name: "alice".to_string(),
     role: UserRole::Admin,
 };
 
-let power_user = User {
-    name: "bob".to_string(),
-    role: UserRole::User { level: 5 },
-};
-
-let mod_user = User {
-    name: "charlie".to_string(),
-    role: UserRole::Moderator("forums".to_string()),
-};
-
-// Serialize to SurrealDB
+// Creates a record with structure:
+// {
+//     "name": "alice",
+//     "role": "Admin"
+// }
 let query = surreal_quote!("CREATE #record(&admin)");
-// Will create: CREATE user:alice SET name = 'alice', role = 'Admin'
+```
 
-let query = surreal_quote!("CREATE #record(&power_user)");
-// Will create: CREATE user:bob SET name = 'bob', role = { user: { level: 5 }
+#### Tagged enum serialization
+```rust
+#[derive(SurrealDerive)]
+#[surreal(tag = "type")]
+enum Message {
+    Text { content: String },
+    Image { url: String, caption: String },
+    Audio { url: String, duration: i32 },
+}
 
-let query = surreal_quote!("CREATE #record(&mod_user)");
-// Will create: CREATE user:charlie SET name = 'charlie', role = { moderator: [ 'forums' ] }
+// Serialization format:
+// Text { content: "Hello" } -> 
+//   { "type": "text", "content": "Hello" }
+// Image { url: "pic.jpg", caption: "My photo" } -> 
+//   { "type": "image", "url": "pic.jpg", "caption": "My photo" }
+// Audio { url: "song.mp3", duration: 180 } -> 
+//   { "type": "audio", "url": "song.mp3", "duration": 180 }
 
-// Deserialize from query results
-let result: User = db.query("SELECT * FROM user WHERE name = 'alice'").await?.take(0)?;
-assert!(matches!(result.role, UserRole::Admin));
+// Example usage:
+let text_msg = Message::Text { content: "Hello".to_string() };
+
+// Create message
+let query = surreal_quote!("CREATE message SET #record(&text_msg)");
+
+// Query by type
+let query = surreal_quote!("SELECT * FROM message WHERE type = 'text'");
+
+// Deserialize
+let result: Message = db.query("SELECT * FROM message WHERE type = 'text'").await?.take(0)?;
+assert!(matches!(result, Message::Text { .. }));
 ```
 
 ### Support custom type
