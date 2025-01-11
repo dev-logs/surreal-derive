@@ -195,11 +195,11 @@ enum Message {
 
 // Serialization format:
 // Text { content: "Hello" } -> 
-//   { "type": "text", "value": { "content": "Hello" } }
+//   { "type": "Text", "value": { "content": "Hello" } }
 // Image { url: "pic.jpg", caption: "My photo" } -> 
-//   { "type": "image", "value": { "url": "pic.jpg", "caption": "My photo" } }
+//   { "type": "Image", "value": { "url": "pic.jpg", "caption": "My photo" } }
 // Audio { url: "song.mp3", duration: 180 } -> 
-//   { "type": "audio", "value": { "url": "song.mp3", "duration": 180 } }
+//   { "type": "Audio", "value": { "url": "song.mp3", "duration": 180 } }
 
 // Example usage:
 let text_msg = Message::Text { content: "Hello".to_string() };
