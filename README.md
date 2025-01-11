@@ -34,7 +34,7 @@ struct User {
 }
 
 let user = User { name: "john".to_string(), age: 30 };
-// Generates: CREATE user:john SET name = 'john', age = 30
+// Generates: CREATE user:john CONTENT { name: 'john', age: 30 }
 let query = surreal_quote!("CREATE #record(&user)");
 ```
 
@@ -195,17 +195,17 @@ enum Message {
 
 // Serialization format:
 // Text { content: "Hello" } -> 
-//   { "type": "text", "content": "Hello" }
+//   { "type": "text", "value": { "content": "Hello" } }
 // Image { url: "pic.jpg", caption: "My photo" } -> 
-//   { "type": "image", "url": "pic.jpg", "caption": "My photo" }
+//   { "type": "image", "value": { "url": "pic.jpg", "caption": "My photo" } }
 // Audio { url: "song.mp3", duration: 180 } -> 
-//   { "type": "audio", "url": "song.mp3", "duration": 180 }
+//   { "type": "audio", "value": { "url": "song.mp3", "duration": 180 } }
 
 // Example usage:
 let text_msg = Message::Text { content: "Hello".to_string() };
 
 // Create message
-let query = surreal_quote!("CREATE message SET #record(&text_msg)");
+let query = surreal_quote!("CREATE #record(&text_msg)");
 
 // Query by type
 let query = surreal_quote!("SELECT * FROM message WHERE type = 'text'");
@@ -255,7 +255,7 @@ let event = Event {
 };
 
 // Serialize to SurrealDB
-let query = surreal_quote!("CREATE event SET #record(&event)");
+let query = surreal_quote!("CREATE #record(&event)");
 
 // Deserialize from query results
 let result: Event = db.query("SELECT * FROM event").await?.take(0)?;
