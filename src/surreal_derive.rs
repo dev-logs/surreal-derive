@@ -1,8 +1,88 @@
 use quote::{quote, format_ident};
 use surreal_devl::config::SurrealDeriveConfig;
 use surreal_devl::naming_convention::{camel_to_snake_case, snake_case_to_camel};
+use syn::{Expr, Lit, Meta};
 
 use crate::attributes::SurrealDeriveAttribute;
+
+// Add this struct at the top of your file
+struct MetaList {
+    items: syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>
+}
+
+impl syn::parse::Parse for MetaList {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        Ok(MetaList {
+            items: syn::punctuated::Punctuated::parse_terminated(input)?
+        })
+    }
+}
+
+// Define a struct to hold field attribute configuration
+#[derive(Default)]
+struct FieldAttributes {
+    db_name: Option<String>,
+    skip_serializing: bool,
+    skip_deserializing: bool,
+    default: bool,
+}
+
+// Function to extract field attributes
+fn extract_field_attributes(field: &syn::Field) -> FieldAttributes {
+    let mut attrs = FieldAttributes::default();
+    
+    for attr in &field.attrs {
+        // Check for #[surreal_field(...)] attributes
+        if attr.path().is_ident("surreal_field") {
+            if let Meta::List(list) = &attr.meta {
+                if let Ok(meta_list) = syn::parse2::<MetaList>(list.tokens.clone()) {
+                    for item in meta_list.items {
+                        match item {
+                            // Handle name = "value" attribute
+                            Meta::NameValue(nv) if nv.path.is_ident("name") => {
+                                if let Expr::Lit(expr_lit) = &nv.value {
+                                    if let Lit::Str(lit) = &expr_lit.lit {
+                                        attrs.db_name = Some(lit.value());
+                                    }
+                                }
+                            },
+                            // Handle skip_serializing flag
+                            Meta::Path(path) if path.is_ident("skip_serializing") => {
+                                attrs.skip_serializing = true;
+                            },
+                            // Handle skip_deserializing flag
+                            Meta::Path(path) if path.is_ident("skip_deserializing") => {
+                                attrs.skip_deserializing = true;
+                            },
+                            // Handle default flag
+                            Meta::Path(path) if path.is_ident("default") => {
+                                attrs.default = true;
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Also check for the existing #[surreal(default)] attribute for backward compatibility
+        else if attr.path().is_ident("surreal") {
+            if let Meta::List(list) = &attr.meta {
+                if let Ok(meta_list) = syn::parse2::<MetaList>(list.tokens.clone()) {
+                    for item in meta_list.items {
+                        if let Meta::Path(path) = item {
+                            if path.is_ident("default") {
+                                attrs.default = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    attrs
+}
 
 pub fn surreal_derive_process_struct(
     ast: syn::ItemStruct,
@@ -12,29 +92,61 @@ pub fn surreal_derive_process_struct(
     let struct_name = &ast.ident;
 
     let from_object_field_converters = ast.fields.iter().map(|field| {
+        let field_attrs = extract_field_attributes(field);
         let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
         let field_type = &field.ty;
-        let db_name: String = match config.use_camel_case {
-            true => snake_case_to_camel(field_name.to_string().as_str()),
-            false => camel_to_snake_case(field_name.to_string().as_str())
+        
+        // Use field_attrs.db_name if provided, otherwise use the default naming convention
+        let db_name: String = match &field_attrs.db_name {
+            Some(name) => name.clone(),
+            None => match config.use_camel_case {
+                true => snake_case_to_camel(field_name.to_string().as_str()),
+                false => camel_to_snake_case(field_name.to_string().as_str())
+            }
         };
 
-        return quote! {
-            #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name).clone())?,
-        };
+        // Skip deserializing if specified
+        if field_attrs.skip_deserializing {
+            quote! {
+                #field_name: Default::default(),
+            }
+        } else if field_attrs.default {
+            // When the field has default attribute, use default if not present
+            quote! {
+                #field_name: match value_object.get(#db_name) {
+                    Some(val) => <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(Some(val))?,
+                    None => <#field_type as Default>::default(),
+                },
+            }
+        } else {
+            // Normal case - no default attribute
+            quote! {
+                #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name))?,
+            }
+        }
     });
 
     let into_object_field_converters = ast.fields.iter().map(|field| {
+        let field_attrs = extract_field_attributes(field);
         let field_name = field.ident.as_ref().expect("Failed to process variable name, the ident could not be empty");
         let field_type = &field.ty;
-        let db_name: String = match config.use_camel_case {
-            true => snake_case_to_camel(field_name.to_string().as_str()),
-            false => camel_to_snake_case(field_name.to_string().as_str())
-        };
+        
+        // Skip serializing if specified
+        if field_attrs.skip_serializing {
+            quote! {}
+        } else {
+            let db_name: String = match &field_attrs.db_name {
+                Some(name) => name.clone(),
+                None => match config.use_camel_case {
+                    true => snake_case_to_camel(field_name.to_string().as_str()),
+                    false => camel_to_snake_case(field_name.to_string().as_str())
+                }
+            };
 
-        return quote! {
-            map.insert(#db_name.to_owned(), <#field_type as surreal_devl::proxy::default::SurrealSerializer>::serialize(value.#field_name.clone()));
-        };
+            quote! {
+                map.insert(#db_name.to_owned(), <#field_type as surreal_devl::proxy::default::SurrealSerializer>::serialize(value.#field_name.clone()));
+            }
+        }
     });
 
     let from_object = {

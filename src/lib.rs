@@ -12,7 +12,7 @@ pub fn surreal_quote(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     surreal_quote::surreal_quote(input)
 }
 
-#[proc_macro_derive(SurrealDerive, attributes(surreal_derive))]
+#[proc_macro_derive(SurrealDerive, attributes(surreal_derive, surreal, surreal_field))]
 pub fn surreal_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let usage_input = input.clone();
     let derive_input = syn::parse_macro_input!(input as syn::DeriveInput);

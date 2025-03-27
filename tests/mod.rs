@@ -221,6 +221,33 @@ mod test_derive_macro {
         let new_entity: VectorEntity = SurrealDeserializer::deserialize(&val).unwrap();
         assert_eq!(entity, new_entity);
     }
+
+    #[test]
+    fn test_default_attribute() {
+        #[derive(Debug, Clone, Serialize, Deserialize, SurrealDerive, PartialEq)]
+        struct EntityWithDefaults {
+            id: String,
+            #[surreal(default)]
+            count: i32,
+            name: String,
+            #[surreal(default)]
+            tags: Vec<String>,
+        }
+        
+        // Create an object with missing fields that have defaults
+        let mut map = BTreeMap::new();
+        map.insert("id".to_string(), Value::from("test-id"));
+        map.insert("name".to_string(), Value::from("Test Entity"));
+        
+        let object = Object::from(map);
+        let entity: EntityWithDefaults = (&object).try_into().unwrap();
+        
+        // Check that default values were used
+        assert_eq!(entity.id, "test-id");
+        assert_eq!(entity.name, "Test Entity");
+        assert_eq!(entity.count, 0);  // Default for i32
+        assert_eq!(entity.tags, Vec::<String>::new());  // Default for Vec
+    }
 }
 
 #[cfg(test)]
@@ -454,8 +481,7 @@ mod test_in_memory_integration {
         surreal_qr::SurrealQR,
     };
     use surrealdb::engine::local::Mem;
-    use surrealdb::sql::Value;
-    use surrealdb::{engine::local::Db, opt::auth::Root, sql::Thing, Surreal};
+    use surrealdb::{engine::local::Db, sql::Thing, Surreal};
 
     // --------------------------
     // Sample structs with fields
@@ -1621,11 +1647,11 @@ mod test_tagged_enum_serialization {
 mod test_complex_tagged_enum_serialization {
     use serde_derive::{Deserialize, Serialize};
     use surreal_devl::proxy::default::{SurrealDeserializer, SurrealSerializer};
-    use surrealdb::sql::{Array, Object, Value};
+    use surrealdb::sql::{Object, Value};
     use surreal_derive_plus::SurrealDerive;
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, SurrealDerive)]
-    struct Metadata {
+    pub struct Metadata {
         created_at: String,
         updated_at: String,
     }
@@ -1814,7 +1840,6 @@ mod test_complex_tagged_enum_serialization {
 
 #[cfg(test)]
 mod test_enum_db_operations {
-    use chrono::Utc;
     use serde_derive::{Deserialize, Serialize};
     use surreal_derive_plus::{surreal_quote, SurrealDerive};
     use surreal_devl::{surreal_id::SurrealId, surreal_qr::RPath};
