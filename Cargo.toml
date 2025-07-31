@@ -1,6 +1,6 @@
 [package]
 name = "surreal_derive_plus"
-version = "2.2.3"
+version = "2.2.5"
 edition = "2021"
 description = "Query builder for surrealdb"
 readme = "README.md"
@@ -17,7 +17,7 @@ syn = { version = "^2.0.38", default-features = false }
 quote = { version = "^1.0.33", default-features = false }
 proc-macro2 = { version = "^1.0.67", default-features = false }
 darling = { version = "^0.20.9", default-features = false }
-surreal_devl = "2.2.2"
+surreal_devl = "2.2.4"
 surrealdb = { version = "^2.2.0", default-features = false }
 
 [dev-dependencies]

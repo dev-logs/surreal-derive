@@ -114,14 +114,14 @@ pub fn surreal_derive_process_struct(
             // When the field has default attribute, use default if not present
             quote! {
                 #field_name: match value_object.get(#db_name) {
-                    Some(val) => <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(Some(val))?,
+                    Some(val) => <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(Some(val)).map_err(|it| surreal_devl::surreal_qr::SurrealResponseError::ParsingFieldFailed(#db_name.to_string(), Box::new(it)))?,
                     None => <#field_type as Default>::default(),
                 },
             }
         } else {
             // Normal case - no default attribute
             quote! {
-                #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name))?,
+                #field_name: <#field_type as surreal_devl::proxy::default::SurrealDeserializer>::from_option(value_object.get(#db_name)).map_err(|it| surreal_devl::surreal_qr::SurrealResponseError::ParsingFieldFailed(#db_name.to_string(), Box::new(it)))?,
             }
         }
     });
@@ -186,16 +186,16 @@ pub fn surreal_derive_process_struct(
                     surrealdb::sql::Value::Object(ref value) => value,
                     surrealdb::sql::Value::Array(ref value) => {
                         if value.len() != 1 {
-                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnArrayWith1ItemToDeserializeToObject)
+                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnArrayWith1ItemToDeserializeToObject(format!("{:?}", value)))
                         }
                         else if let Some(surrealdb::sql::Value::Object(ref obj)) = value.0.first() {
                             obj
                         }
                         else {
-                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
+                            return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject(format!("{:?}", value)))
                         }
                     }
-                    _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject),
+                    _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject(format!("{:?}", value))),
                 };
 
                 Ok(Self::try_from(object)?)
@@ -362,13 +362,13 @@ pub fn surreal_derive_process_enum(
                     #db_name => {
                         if let surrealdb::sql::Value::Array(arr) = variant_value {
                             if arr.len() != #field_count {
-                                return Err(surreal_devl::surreal_qr::SurrealResponseError::NumberOfFieldOfLengthOfDbValueNotMatchLengthOfEnum);
+                                return Err(surreal_devl::surreal_qr::SurrealResponseError::NumberOfFieldOfLengthOfDbValueNotMatchLengthOfEnum(format!("{arr:?}")));
                             }
                             Ok(#enum_name::#variant_name(
                                 #(#field_deserializers),*
                             ))
                         } else {
-                            Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnArray)
+                            Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnArray(format!("{:?}", variant_value)))
                         }
                     }
                 }
@@ -395,7 +395,7 @@ pub fn surreal_derive_process_enum(
                                 #(#field_deserializers),*
                             })
                         } else {
-                            Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject)
+                            Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject(format!("{:?}", variant_value)))
                         }
                     }
                 }
@@ -426,22 +426,22 @@ pub fn surreal_derive_process_enum(
                         }
                         &fake_obj
                     },
-                    _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject),
+                    _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::ExpectedAnObject(format!("{:?}", value))),
                 };
 
                 let (variant_name, variant_value) = if #use_type_value_format {
                     let type_value = obj.get("type")
-                        .ok_or(surreal_devl::surreal_qr::SurrealResponseError::TypeEnumMustBeString)?;
+                        .ok_or(surreal_devl::surreal_qr::SurrealResponseError::TypeEnumMustBeString(format!("{:?}", obj)))?;
                     let variant_value = obj.get("value")
                         .unwrap_or(type_value);
                     
                     match type_value {
                         surrealdb::sql::Value::Strand(s) => (s.0.as_str(), variant_value),
-                        _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat),
+                        _ => return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat(format!("{:?}", type_value))),
                     }
                 } else {
                     if obj.len() != 1 {
-                        return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat);
+                        return Err(surreal_devl::surreal_qr::SurrealResponseError::InvalidEnumFormat(format!("{:?}", obj)));
                     }
                     let (name, value) = obj.iter().next().unwrap();
                     (name.as_str(), value)
@@ -449,7 +449,7 @@ pub fn surreal_derive_process_enum(
 
                 match variant_name {
                     #(#deserialize_match_arms)*
-                    _ => Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant),
+                    _ => Err(surreal_devl::surreal_qr::SurrealResponseError::UnknownVariant(format!("{variant_name:?}"))),
                 }
             }
         }
